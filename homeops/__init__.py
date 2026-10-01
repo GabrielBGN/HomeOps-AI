@@ -1,1 +1,1 @@
-
+"""HomeOps-AI core package."""
