@@ -5,6 +5,7 @@ from .database import (
     save_device,
     get_all_devices,
     get_device_by_mac,
+    record_scan_history,
 )
 from .scanner import mock_scan
 from .change_detector import detect_changes
@@ -58,6 +59,8 @@ def main():
 
         save_device(device)
 
+        record_scan_history(device)
+
     devices = get_all_devices()
 
     print(f"{'IP ADDRESS':<18}{'HOSTNAME':<22}{'STATUS':<10}")
@@ -76,8 +79,13 @@ def main():
 
     print("-" * 50)
 
-    online_count = sum(1 for device in devices if device[6] == "online")
-    offline_count = sum(1 for device in devices if device[6] == "offline")
+    online_count = sum(
+        1 for device in devices if device[6] == "online"
+    )
+
+    offline_count = sum(
+        1 for device in devices if device[6] == "offline"
+    )
 
     print(f"Known devices: {len(devices)}")
     print(f"Online: {online_count}")
