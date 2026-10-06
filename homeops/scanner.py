@@ -19,6 +19,7 @@ def mock_scan():
             "hostname": "gateway",
             "vendor": "Unknown",
             "status": "online",
+            "latency_ms": 4.2,
             "last_seen": timestamp,
         },
         {
@@ -27,6 +28,7 @@ def mock_scan():
             "hostname": "desktop",
             "vendor": "Unknown",
             "status": "online",
+            "latency_ms": 8.7,
             "last_seen": timestamp,
         },
         {
@@ -35,6 +37,7 @@ def mock_scan():
             "hostname": "ubuntu-server",
             "vendor": "Unknown",
             "status": "offline",
+            "latency_ms": None,
             "last_seen": timestamp,
         },
     ]
@@ -46,11 +49,27 @@ if __name__ == "__main__":
     results = mock_scan()
 
     print("HomeOps-AI Mock Network Scan")
-    print("-" * 50)
+    print("-" * 70)
+
+    print(
+        f"{'IP ADDRESS':<18}"
+        f"{'HOSTNAME':<20}"
+        f"{'STATUS':<12}"
+        f"{'LATENCY':<10}"
+    )
+
+    print("-" * 70)
 
     for device in results:
+        latency = (
+            f"{device['latency_ms']} ms"
+            if device["latency_ms"] is not None
+            else "-"
+        )
+
         print(
-            f"{device['ip_address']:<16}"
+            f"{device['ip_address']:<18}"
             f"{device['hostname']:<20}"
-            f"{device['status'].upper()}"
+            f"{device['status'].upper():<12}"
+            f"{latency:<10}"
         )
