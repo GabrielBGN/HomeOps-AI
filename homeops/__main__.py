@@ -1,7 +1,40 @@
 """Main entry point for HomeOps-AI."""
 
-from .database import initialize_database, save_device, get_all_devices
+from .database import (
+    initialize_database,
+    save_device,
+    get_all_devices,
+    get_device_by_mac,
+)
 from .scanner import mock_scan
+from .change_detector import detect_changes
+
+
+def print_change(change):
+    """Display a detected network change."""
+
+    if change["type"] == "new_device":
+        print(
+            f"[NEW DEVICE] "
+            f"{change['hostname']} "
+            f"({change['ip_address']})"
+        )
+
+    elif change["type"] == "status_change":
+        print(
+            f"[STATUS CHANGE] "
+            f"{change['hostname']}: "
+            f"{change['old_status'].upper()} -> "
+            f"{change['new_status'].upper()}"
+        )
+
+    elif change["type"] == "ip_change":
+        print(
+            f"[IP CHANGE] "
+            f"{change['hostname']}: "
+            f"{change['old_ip']} -> "
+            f"{change['new_ip']}"
+        )
 
 
 def main():
@@ -11,17 +44,20 @@ def main():
     print("=" * 60)
     print("Starting network scan...\n")
 
-    # Make sure the database exists.
     initialize_database()
 
-    # Run the temporary mock scanner.
     scan_results = mock_scan()
 
-    # Save every discovered device.
+    detected_changes = []
+
     for device in scan_results:
+        previous_device = get_device_by_mac(device["mac_address"])
+
+        changes = detect_changes(previous_device, device)
+        detected_changes.extend(changes)
+
         save_device(device)
 
-    # Retrieve the current inventory.
     devices = get_all_devices()
 
     print(f"{'IP ADDRESS':<18}{'HOSTNAME':<22}{'STATUS':<10}")
@@ -46,6 +82,15 @@ def main():
     print(f"Known devices: {len(devices)}")
     print(f"Online: {online_count}")
     print(f"Offline: {offline_count}")
+
+    print("\nNetwork Changes")
+    print("-" * 50)
+
+    if detected_changes:
+        for change in detected_changes:
+            print_change(change)
+    else:
+        print("No network changes detected.")
 
 
 if __name__ == "__main__":
