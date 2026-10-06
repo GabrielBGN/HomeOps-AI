@@ -108,7 +108,43 @@ def save_device(device):
 
     connection.commit()
     connection.close()
+    
+def get_device_by_mac(mac_address):
+    """Return a device record as a dictionary using its MAC address."""
+    connection = get_connection()
+    cursor = connection.cursor()
 
+    cursor.execute(
+        """
+        SELECT
+            ip_address,
+            mac_address,
+            hostname,
+            vendor,
+            first_seen,
+            last_seen,
+            status
+        FROM devices
+        WHERE mac_address = ?
+        """,
+        (mac_address,),
+    )
+
+    row = cursor.fetchone()
+    connection.close()
+
+    if row is None:
+        return None
+
+    return {
+        "ip_address": row[0],
+        "mac_address": row[1],
+        "hostname": row[2],
+        "vendor": row[3],
+        "first_seen": row[4],
+        "last_seen": row[5],
+        "status": row[6],
+    }
 
 def get_all_devices():
     """Return all devices stored in the database."""
