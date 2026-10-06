@@ -1,0 +1,10 @@
+network:
+  subnet: "192.168.1.0/24"
+  scan_interval: 300
+
+database:
+  path: "data/homeops.db"
+
+monitoring:
+  timeout: 1
+  new_device_alerts: true
