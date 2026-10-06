@@ -54,11 +54,7 @@ def initialize_database():
 
 
 def save_device(device):
-    """
-    Insert a new device or update an existing device.
-
-    Devices are primarily identified by MAC address.
-    """
+    """Insert a new device or update an existing device."""
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -125,7 +121,7 @@ def save_device(device):
 
 
 def get_device_by_mac(mac_address):
-    """Return a device record as a dictionary using its MAC address."""
+    """Return a device record using its MAC address."""
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -233,6 +229,49 @@ def get_all_devices():
     connection.close()
 
     return devices
+
+
+def get_recent_scan_history(limit=20):
+    """Return the most recent network scan history entries."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            devices.hostname,
+            devices.mac_address,
+            scan_history.ip_address,
+            scan_history.status,
+            scan_history.latency_ms,
+            scan_history.timestamp
+        FROM scan_history
+        JOIN devices
+            ON scan_history.device_id = devices.id
+        ORDER BY scan_history.timestamp DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+    rows = cursor.fetchall()
+    connection.close()
+
+    history = []
+
+    for row in rows:
+        history.append(
+            {
+                "hostname": row[0],
+                "mac_address": row[1],
+                "ip_address": row[2],
+                "status": row[3],
+                "latency_ms": row[4],
+                "timestamp": row[5],
+            }
+        )
+
+    return history
 
 
 if __name__ == "__main__":
