@@ -35,6 +35,20 @@ def initialize_database():
         """
     )
 
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scan_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL,
+            timestamp TEXT NOT NULL,
+            ip_address TEXT NOT NULL,
+            status TEXT NOT NULL,
+            latency_ms REAL,
+            FOREIGN KEY (device_id) REFERENCES devices(id)
+        )
+        """
+    )
+
     connection.commit()
     connection.close()
 
@@ -108,7 +122,8 @@ def save_device(device):
 
     connection.commit()
     connection.close()
-    
+
+
 def get_device_by_mac(mac_address):
     """Return a device record as a dictionary using its MAC address."""
     connection = get_connection()
@@ -145,6 +160,53 @@ def get_device_by_mac(mac_address):
         "last_seen": row[5],
         "status": row[6],
     }
+
+
+def record_scan_history(device):
+    """Store a historical snapshot of a device scan."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT id
+        FROM devices
+        WHERE mac_address = ?
+        """,
+        (device["mac_address"],),
+    )
+
+    row = cursor.fetchone()
+
+    if row is None:
+        connection.close()
+        return
+
+    device_id = row[0]
+
+    cursor.execute(
+        """
+        INSERT INTO scan_history (
+            device_id,
+            timestamp,
+            ip_address,
+            status,
+            latency_ms
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            device_id,
+            datetime.now().isoformat(timespec="seconds"),
+            device["ip_address"],
+            device["status"],
+            device.get("latency_ms"),
+        ),
+    )
+
+    connection.commit()
+    connection.close()
+
 
 def get_all_devices():
     """Return all devices stored in the database."""
