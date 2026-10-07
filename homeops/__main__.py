@@ -6,9 +6,14 @@ from .database import (
     get_all_devices,
     get_device_by_mac,
     record_scan_history,
+    increment_missed_scan,
+    mark_device_offline,
 )
 from .scanner import scan_network
 from .change_detector import detect_changes
+
+
+OFFLINE_THRESHOLD = 3
 
 
 def print_change(change):
@@ -52,7 +57,7 @@ def main():
     detected_changes = []
     seen_mac_addresses = set()
 
-    # Process devices discovered during the current scan.
+    # Process devices discovered during this scan.
     for device in scan_results:
         mac_address = device["mac_address"]
 
@@ -66,10 +71,11 @@ def main():
         changes = detect_changes(previous_device, device)
         detected_changes.extend(changes)
 
+        # save_device() also resets missed_scans to 0.
         save_device(device)
         record_scan_history(device)
 
-    # Find known devices that were not discovered during this scan.
+    # Check known devices that were not seen in this scan.
     known_devices = get_all_devices()
 
     for device in known_devices:
@@ -84,38 +90,54 @@ def main():
         if mac_address is None:
             continue
 
-        if mac_address not in seen_mac_addresses:
-            previous_device = {
-                "ip_address": ip_address,
-                "mac_address": mac_address,
-                "hostname": hostname,
-                "vendor": vendor,
-                "first_seen": first_seen,
-                "last_seen": last_seen,
-                "status": status,
-            }
+        if mac_address in seen_mac_addresses:
+            continue
 
-            offline_device = {
-                "ip_address": ip_address,
-                "mac_address": mac_address,
-                "hostname": hostname,
-                "vendor": vendor,
-                "status": "offline",
-                "latency_ms": None,
+        missed_scans = increment_missed_scan(mac_address)
 
-                # Preserve the last time the device was actually seen.
-                "last_seen": last_seen,
-            }
+        print(
+            f"[MISSED] {hostname or 'Unknown'} "
+            f"({ip_address}) "
+            f"{missed_scans}/{OFFLINE_THRESHOLD}"
+        )
 
-            changes = detect_changes(
-                previous_device,
-                offline_device,
-            )
+        # Do not declare offline until the threshold is reached.
+        if missed_scans < OFFLINE_THRESHOLD:
+            continue
 
-            detected_changes.extend(changes)
+        # Avoid repeatedly reporting an already-offline device.
+        if status == "offline":
+            continue
 
-            save_device(offline_device)
-            record_scan_history(offline_device)
+        previous_device = {
+            "ip_address": ip_address,
+            "mac_address": mac_address,
+            "hostname": hostname,
+            "vendor": vendor,
+            "first_seen": first_seen,
+            "last_seen": last_seen,
+            "status": status,
+        }
+
+        offline_device = {
+            "ip_address": ip_address,
+            "mac_address": mac_address,
+            "hostname": hostname,
+            "vendor": vendor,
+            "status": "offline",
+            "latency_ms": None,
+            "last_seen": last_seen,
+        }
+
+        changes = detect_changes(
+            previous_device,
+            offline_device,
+        )
+
+        detected_changes.extend(changes)
+
+        mark_device_offline(mac_address)
+        record_scan_history(offline_device)
 
     devices = get_all_devices()
 
@@ -155,7 +177,7 @@ def main():
         for change in detected_changes:
             print_change(change)
     else:
-        print("No network changes detected.")
+        print("No confirmed network changes detected.")
 
 
 if __name__ == "__main__":
