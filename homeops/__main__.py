@@ -7,7 +7,7 @@ from .database import (
     get_device_by_mac,
     record_scan_history,
 )
-from .scanner import mock_scan
+from .scanner import scan_network
 from .change_detector import detect_changes
 
 
@@ -47,7 +47,7 @@ def main():
 
     initialize_database()
 
-    scan_results = mock_scan()
+    scan_results = scan_network()
 
     detected_changes = []
 
@@ -58,13 +58,13 @@ def main():
         detected_changes.extend(changes)
 
         save_device(device)
-
         record_scan_history(device)
 
     devices = get_all_devices()
 
-    print(f"{'IP ADDRESS':<18}{'HOSTNAME':<22}{'STATUS':<10}")
-    print("-" * 50)
+    print()
+    print(f"{'IP ADDRESS':<18}{'HOSTNAME':<30}{'STATUS':<10}")
+    print("-" * 60)
 
     for device in devices:
         ip_address = device[0]
@@ -73,11 +73,11 @@ def main():
 
         print(
             f"{ip_address:<18}"
-            f"{hostname:<22}"
+            f"{hostname:<30}"
             f"{status.upper():<10}"
         )
 
-    print("-" * 50)
+    print("-" * 60)
 
     online_count = sum(
         1 for device in devices if device[6] == "online"
@@ -92,7 +92,7 @@ def main():
     print(f"Offline: {offline_count}")
 
     print("\nNetwork Changes")
-    print("-" * 50)
+    print("-" * 60)
 
     if detected_changes:
         for change in detected_changes:
