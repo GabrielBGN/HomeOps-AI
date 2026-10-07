@@ -93,6 +93,11 @@ def main():
         if mac_address in seen_mac_addresses:
             continue
 
+        # Already-confirmed offline devices do not need
+        # additional missed-scan counting.
+        if status == "offline":
+            continue
+
         missed_scans = increment_missed_scan(mac_address)
 
         print(
