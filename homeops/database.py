@@ -14,7 +14,7 @@ def get_connection():
 
 
 def initialize_database():
-    """Create the HomeOps-AI database tables if they do not exist."""
+    """Create and migrate the HomeOps-AI database."""
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     connection = get_connection()
@@ -30,10 +30,24 @@ def initialize_database():
             vendor TEXT,
             first_seen TEXT NOT NULL,
             last_seen TEXT NOT NULL,
-            status TEXT NOT NULL
+            status TEXT NOT NULL,
+            missed_scans INTEGER NOT NULL DEFAULT 0
         )
         """
     )
+
+    # Upgrade older HomeOps-AI databases that do not yet
+    # contain the missed_scans column.
+    cursor.execute("PRAGMA table_info(devices)")
+    columns = [column[1] for column in cursor.fetchall()]
+
+    if "missed_scans" not in columns:
+        cursor.execute(
+            """
+            ALTER TABLE devices
+            ADD COLUMN missed_scans INTEGER NOT NULL DEFAULT 0
+            """
+        )
 
     cursor.execute(
         """
@@ -54,7 +68,12 @@ def initialize_database():
 
 
 def save_device(device):
-    """Insert a new device or update an existing device."""
+    """
+    Insert a new device or update an existing device.
+
+    A successfully discovered device has its missed scan
+    counter reset to zero.
+    """
     connection = get_connection()
     cursor = connection.cursor()
 
@@ -79,7 +98,8 @@ def save_device(device):
                 hostname = ?,
                 vendor = ?,
                 last_seen = ?,
-                status = ?
+                status = ?,
+                missed_scans = 0
             WHERE mac_address = ?
             """,
             (
@@ -101,9 +121,10 @@ def save_device(device):
                 vendor,
                 first_seen,
                 last_seen,
-                status
+                status,
+                missed_scans
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 device["ip_address"],
@@ -134,7 +155,8 @@ def get_device_by_mac(mac_address):
             vendor,
             first_seen,
             last_seen,
-            status
+            status,
+            missed_scans
         FROM devices
         WHERE mac_address = ?
         """,
@@ -155,7 +177,60 @@ def get_device_by_mac(mac_address):
         "first_seen": row[4],
         "last_seen": row[5],
         "status": row[6],
+        "missed_scans": row[7],
     }
+
+
+def increment_missed_scan(mac_address):
+    """Increment and return the missed scan count for a device."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        UPDATE devices
+        SET missed_scans = missed_scans + 1
+        WHERE mac_address = ?
+        """,
+        (mac_address,),
+    )
+
+    cursor.execute(
+        """
+        SELECT missed_scans
+        FROM devices
+        WHERE mac_address = ?
+        """,
+        (mac_address,),
+    )
+
+    row = cursor.fetchone()
+
+    connection.commit()
+    connection.close()
+
+    if row is None:
+        return 0
+
+    return row[0]
+
+
+def mark_device_offline(mac_address):
+    """Mark a known device as offline."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        UPDATE devices
+        SET status = 'offline'
+        WHERE mac_address = ?
+        """,
+        (mac_address,),
+    )
+
+    connection.commit()
+    connection.close()
 
 
 def record_scan_history(device):
@@ -218,7 +293,8 @@ def get_all_devices():
             vendor,
             first_seen,
             last_seen,
-            status
+            status,
+            missed_scans
         FROM devices
         ORDER BY ip_address
         """
