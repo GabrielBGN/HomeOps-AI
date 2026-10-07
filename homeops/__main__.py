@@ -50,15 +50,72 @@ def main():
     scan_results = scan_network()
 
     detected_changes = []
+    seen_mac_addresses = set()
 
+    # Process devices discovered during the current scan.
     for device in scan_results:
-        previous_device = get_device_by_mac(device["mac_address"])
+        mac_address = device["mac_address"]
+
+        if mac_address is None:
+            continue
+
+        seen_mac_addresses.add(mac_address)
+
+        previous_device = get_device_by_mac(mac_address)
 
         changes = detect_changes(previous_device, device)
         detected_changes.extend(changes)
 
         save_device(device)
         record_scan_history(device)
+
+    # Find known devices that were not discovered during this scan.
+    known_devices = get_all_devices()
+
+    for device in known_devices:
+        ip_address = device[0]
+        mac_address = device[1]
+        hostname = device[2]
+        vendor = device[3]
+        first_seen = device[4]
+        last_seen = device[5]
+        status = device[6]
+
+        if mac_address is None:
+            continue
+
+        if mac_address not in seen_mac_addresses:
+            previous_device = {
+                "ip_address": ip_address,
+                "mac_address": mac_address,
+                "hostname": hostname,
+                "vendor": vendor,
+                "first_seen": first_seen,
+                "last_seen": last_seen,
+                "status": status,
+            }
+
+            offline_device = {
+                "ip_address": ip_address,
+                "mac_address": mac_address,
+                "hostname": hostname,
+                "vendor": vendor,
+                "status": "offline",
+                "latency_ms": None,
+
+                # Preserve the last time the device was actually seen.
+                "last_seen": last_seen,
+            }
+
+            changes = detect_changes(
+                previous_device,
+                offline_device,
+            )
+
+            detected_changes.extend(changes)
+
+            save_device(offline_device)
+            record_scan_history(offline_device)
 
     devices = get_all_devices()
 
