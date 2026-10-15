@@ -1,369 +1,171 @@
 
-# HomeOps-AI Deployment Guide
-
-This guide explains how to deploy and verify HomeOps-AI
-on a Raspberry Pi 4 running Raspberry Pi OS.
-
-## Environment
-
-- Device: Raspberry Pi 4
-- Operating system: Raspberry Pi OS Bullseye
-- Python: 3.9 or newer
-- Project directory: `/home/gab1010/HomeOps-AI`
-- Dashboard port: `8080`
-
-## 1. Connect to the Raspberry Pi
-
-Connect to the Raspberry Pi using SSH:
-
-```bash
-ssh gab1010@192.168.1.109
-```
-
-The IP address may change depending on the router's
-DHCP configuration.
-
-## 2. Update HomeOps-AI
-
-Navigate to the project directory:
-
-```bash
-cd /home/gab1010/HomeOps-AI
-```
-
-Check for uncommitted changes:
-
-```bash
-git status
-```
-
-If there are no local changes that need to be saved,
-download the latest code:
-
-```bash
-git pull --ff-only
-```
-
-Do not discard uncommitted changes.
-
-## 3. Run a network scan
-
-Before configuring trusted devices, run a manual scan:
-
-```bash
-python3 -m homeops
-```
-
-The scanner should discover devices and update the
-SQLite inventory.
-
-Review the output for errors.
-
-The Security Review may display a message indicating
-that trusted-device configuration is missing. This
-is expected during initial setup.
-
-## 4. Configure trusted devices
-
-HomeOps-AI supports interactive trusted-device setup.
-
-First, check whether the private configuration
-already exists:
-
-```bash
-ls -l config/trusted_devices.json
-```
-
-### Option A: Interactive setup (recommended)
-
-If the configuration file does not exist, run:
-
-```bash
-python3 -m homeops.trust_setup
-```
-
-The tool reads discovered devices from the database
-and displays their details.
-
-For each device:
-
-1. Review the hostname, IP address, and MAC address.
-2. Enter `y` to trust a recognized device.
-3. Enter `n` to skip an unrecognized device.
-4. Type `YES` at the final confirmation prompt.
-
-The tool creates:
-
-```text
-config/trusted_devices.json
-```
-
-The file is created with owner-only permissions.
-
-The tool will not overwrite an existing configuration.
-
-Only approve devices you recognize and authorize.
-
-### Option B: Manual configuration
-
-If the configuration file already exists, review
-and edit it instead:
-
-```bash
-nano config/trusted_devices.json
-```
-
-Example:
-
-```json
-{
-  "trusted_macs": [
-    "AA:BB:CC:DD:EE:01",
-    "AA:BB:CC:DD:EE:02"
-  ]
-}
-```
-
-Replace these example MAC addresses with the actual
-addresses of trusted devices.
-
-If creating the file manually for the first time,
-you may copy the example:
-
-```bash
-cp -n config/trusted_devices.example.json \
-  config/trusted_devices.json
-```
-
-After manually creating the file, restrict access:
-
-```bash
-chmod 600 config/trusted_devices.json
-```
-
-Important:
-
-- Never commit the private configuration to GitHub.
-- An empty trusted list flags every discovered online
-  device with a valid MAC address.
-- Some devices use randomized MAC addresses.
-- MAC addresses can be spoofed.
-- An unrecognized device is not automatically malicious.
-
-Validate the JSON:
-
-```bash
-python3 -m json.tool \
-  config/trusted_devices.json
-```
-
-## 5. Run deployment preflight
-
-After configuring trusted devices, run:
-
-```bash
-python3 -m homeops.preflight
-```
-
-The preflight checker verifies:
-
-- Python version
-- Required project files
-- Private trusted-device configuration
-- Trusted MAC address validity
-
-Example successful output:
-
-```text
-HomeOps-AI Deployment Preflight
-============================================================
-[PASS] Python 3.9
-[PASS] Found homeops/__main__.py
-...
-[PASS] Trusted-device configuration is valid (5 devices)
-------------------------------------------------------------
-Preflight passed with 0 warning(s).
-```
-
-This is illustrative output.
-
-A `FAIL` means a deployment prerequisite needs
-attention.
-
-A `WARN` means deployment may proceed, but the
-reported issue should be reviewed.
-
-Preflight does not test live network connectivity,
-systemd services, or dashboard accessibility.
-
-## 6. Verify security monitoring
-
-Run another manual scan:
-
-```bash
-python3 -m homeops
-```
-
-Confirm that the output includes:
-
-- Device inventory
-- Online and offline counts
-- Network changes
-- Security Review
-- Scan complete
-
-Review any unrecognized devices.
-
-Do not automatically trust an unfamiliar device
-just to clear a security warning.
-
-## 7. Install the dashboard
-
-Run the dashboard installer:
-
-```bash
-bash scripts/install_dashboard.sh
-```
-
-Verify the service:
-
-```bash
-sudo systemctl status \
-  homeops-dashboard.service --no-pager
-```
-
-Open the dashboard from a browser connected to
-the home network:
-
-```text
-http://192.168.1.109:8080
-```
-
-Replace the IP address if it has changed.
-
-Security note:
-
-The dashboard currently has no authentication.
-Do not forward port 8080 through your router or
-expose the dashboard directly to the internet.
-
-## 8. Verify automatic network scanning
-
-Check the existing scanner timer:
-
-```bash
-sudo systemctl status \
-  homeops.timer --no-pager
-```
-
-Check the scanner service:
-
-```bash
-sudo systemctl status \
-  homeops.service --no-pager
-```
-
-Review recent scanner logs:
-
-```bash
-sudo journalctl -u homeops.service \
-  -n 50 --no-pager
-```
-
-The timer should continue triggering network scans
-automatically.
-
-## 9. Troubleshooting
-
-### Scanner fails
-
-Run the scanner manually:
-
-```bash
-python3 -m homeops
-```
-
-Review the traceback or error message.
-
-### Dashboard does not load
-
-Check the dashboard service:
-
-```bash
-sudo systemctl status \
-  homeops-dashboard.service --no-pager
-```
-
-Review its logs:
-
-```bash
-sudo journalctl -u homeops-dashboard.service \
-  -n 50 --no-pager
-```
-
-### Trusted-device setup refuses to run
-
-The interactive tool does not overwrite an existing
-trusted-device configuration.
-
-Check for:
-
-```text
-config/trusted_devices.json
-```
-
-If it exists, review and edit it manually.
-
-### No devices appear during setup
-
-Run a network scan:
-
-```bash
-python3 -m homeops
-```
-
-Then retry interactive setup if the configuration
-file does not already exist.
-
-### Preflight fails
-
-Read each `FAIL` message.
-
-Check missing files, Python compatibility, and
-trusted-device configuration.
-
-### Raspberry Pi IP address changed
-
-Find the current address:
-
-```bash
-hostname -I
-```
-
-Use the current IP address when connecting to
-SSH or the dashboard.
-
-## 10. Deployment verification checklist
-
-- [ ] Latest GitHub changes pulled
-- [ ] Manual network scan successful
-- [ ] Trusted devices reviewed and approved
-- [ ] Private trusted-device configuration created
-- [ ] JSON configuration validated
-- [ ] Deployment preflight passed
-- [ ] Security Review verified
-- [ ] Dashboard service running
-- [ ] Dashboard accessible from the home network
-- [ ] Automatic scanner timer active
-- [ ] Scanner logs checked
-- [ ] No unexpected errors
-
-## Deployment status
-
-GitHub Actions validates the project's automated tests.
-
-Raspberry Pi deployment and real-network verification
-must still be completed locally.
-
-Do not assume successful GitHub tests guarantee that
-the live Raspberry Pi deployment is working.
+"""Network security audit for HomeOps-AI."""
+
+from .database import initialize_database, get_all_devices
+from .security import normalize_mac
+from .trusted_devices import load_trusted_macs
+
+
+def audit_devices(devices, trusted_macs):
+    """
+    Review known devices against the trusted MAC list.
+
+    This function does not perform a network scan or
+    modify the database.
+
+    Returns a summary dictionary.
+    """
+
+    trusted = set()
+
+    for mac_address in trusted_macs:
+        normalized = normalize_mac(mac_address)
+
+        if normalized is not None:
+            trusted.add(normalized)
+
+    results = {
+        "total": 0,
+        "online": 0,
+        "offline": 0,
+        "trusted_online": 0,
+        "unrecognized_online": 0,
+        "unverifiable_online": 0,
+        "devices": [],
+    }
+
+    for device in devices:
+        ip_address = device[0] or "Unknown"
+        mac_address = normalize_mac(device[1])
+        hostname = device[2] or "Unknown"
+        vendor = device[3] or "Unknown"
+        status = str(device[6] or "UNKNOWN").upper()
+
+        if mac_address is None:
+            trust_status = "UNVERIFIABLE"
+        elif mac_address in trusted:
+            trust_status = "TRUSTED"
+        else:
+            trust_status = "UNRECOGNIZED"
+
+        record = {
+            "ip_address": ip_address,
+            "mac_address": mac_address,
+            "hostname": hostname,
+            "vendor": vendor,
+            "status": status,
+            "trust_status": trust_status,
+        }
+
+        results["devices"].append(record)
+        results["total"] += 1
+
+        if status == "ONLINE":
+            results["online"] += 1
+
+            if trust_status == "TRUSTED":
+                results["trusted_online"] += 1
+
+            elif trust_status == "UNRECOGNIZED":
+                results["unrecognized_online"] += 1
+
+            else:
+                results["unverifiable_online"] += 1
+
+        elif status == "OFFLINE":
+            results["offline"] += 1
+
+    return results
+
+
+def print_audit_report(results):
+    """Display a readable network security report."""
+
+    print("\nHomeOps-AI Network Security Audit")
+    print("=" * 60)
+
+    print(f"Known devices:        {results['total']}")
+    print(f"Online devices:       {results['online']}")
+    print(f"Offline devices:      {results['offline']}")
+    print(f"Trusted online:       {results['trusted_online']}")
+    print(
+        f"Unrecognized online:  "
+        f"{results['unrecognized_online']}"
+    )
+    print(
+        f"Unverifiable online:  "
+        f"{results['unverifiable_online']}"
+    )
+
+    print("\nDevices Requiring Review")
+    print("-" * 60)
+
+    devices_to_review = [
+        device
+        for device in results["devices"]
+        if device["status"] == "ONLINE"
+        and device["trust_status"] != "TRUSTED"
+    ]
+
+    if not devices_to_review:
+        print("No unrecognized online devices found.")
+
+    else:
+        for device in devices_to_review:
+            print()
+            print(
+                f"[{device['trust_status']}] "
+                f"{device['hostname']}"
+            )
+            print(f"  IP:     {device['ip_address']}")
+            print(
+                f"  MAC:    "
+                f"{device['mac_address'] or 'Unknown'}"
+            )
+            print(f"  Vendor: {device['vendor']}")
+
+    print("\n" + "=" * 60)
+    print("Audit complete.")
+
+    if devices_to_review:
+        print(
+            "Review these devices before deciding "
+            "whether to trust them."
+        )
+
+    print(
+        "This report uses the saved device inventory. "
+        "It is not a live network scan."
+    )
+
+
+def main():
+    """Run the security audit using local project data."""
+
+    try:
+        trusted_macs = load_trusted_macs()
+
+    except (OSError, ValueError) as error:
+        print(f"[ERROR] Trusted-device configuration: {error}")
+        print(
+            "Configure trusted devices before "
+            "running the security audit."
+        )
+        return 1
+
+    try:
+        initialize_database()
+        devices = get_all_devices()
+
+    except Exception as error:
+        print(f"[ERROR] Could not read device inventory: {error}")
+        return 1
+
+    results = audit_devices(devices, trusted_macs)
+    print_audit_report(results)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
