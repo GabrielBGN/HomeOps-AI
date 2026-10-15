@@ -103,7 +103,7 @@ def main():
             continue
 
         # Do not continue counting misses for offline devices.
-        if status == "offline":
+        if status.upper() == "OFFLINE":
             continue
 
         missed_scans = increment_missed_scan(mac_address)
@@ -133,7 +133,7 @@ def main():
             "mac_address": mac_address,
             "hostname": hostname,
             "vendor": vendor,
-            "status": "offline",
+            "status": "OFFLINE",
             "latency_ms": None,
             "last_seen": last_seen,
         }
@@ -172,12 +172,12 @@ def main():
 
     online_count = sum(
         1 for device in devices
-        if device[6] == "online"
+        if device[6].upper() == "ONLINE"
     )
 
     offline_count = sum(
         1 for device in devices
-        if device[6] == "offline"
+        if device[6].upper() == "OFFLINE"
     )
 
     print(f"Known devices: {len(devices)}")
