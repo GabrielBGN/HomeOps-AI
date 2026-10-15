@@ -1,3 +1,4 @@
+
 """Main entry point for HomeOps-AI."""
 
 from .database import (
@@ -9,8 +10,10 @@ from .database import (
     increment_missed_scan,
     mark_device_offline,
 )
+
 from .scanner import scan_network
 from .change_detector import detect_changes
+from .trusted_devices import check_unrecognized_devices
 
 
 OFFLINE_THRESHOLD = 3
@@ -44,14 +47,16 @@ def print_change(change):
 
 
 def main():
-    """Run a HomeOps-AI network scan and update the device inventory."""
+    """Run a network scan and update HomeOps-AI."""
 
     print("HomeOps-AI")
     print("=" * 60)
     print("Starting network scan...\n")
 
+    # Initialize SQLite database.
     initialize_database()
 
+    # Discover devices on the network.
     scan_results = scan_network()
 
     detected_changes = []
@@ -66,12 +71,15 @@ def main():
 
         seen_mac_addresses.add(mac_address)
 
+        # Check whether the device was previously known.
         previous_device = get_device_by_mac(mac_address)
 
+        # Detect new devices, IP changes, and status changes.
         changes = detect_changes(previous_device, device)
         detected_changes.extend(changes)
 
-        # save_device() also resets missed_scans to 0.
+        # Save device information and scan history.
+        # save_device() also resets missed_scans to zero.
         save_device(device)
         record_scan_history(device)
 
@@ -90,11 +98,11 @@ def main():
         if mac_address is None:
             continue
 
+        # Skip devices found during the current scan.
         if mac_address in seen_mac_addresses:
             continue
 
-        # Already-confirmed offline devices do not need
-        # additional missed-scan counting.
+        # Do not continue counting misses for offline devices.
         if status == "offline":
             continue
 
@@ -106,12 +114,8 @@ def main():
             f"{missed_scans}/{OFFLINE_THRESHOLD}"
         )
 
-        # Do not declare offline until the threshold is reached.
+        # Wait for three consecutive missed scans.
         if missed_scans < OFFLINE_THRESHOLD:
-            continue
-
-        # Avoid repeatedly reporting an already-offline device.
-        if status == "offline":
             continue
 
         previous_device = {
@@ -134,6 +138,7 @@ def main():
             "last_seen": last_seen,
         }
 
+        # Detect the transition from online to offline.
         changes = detect_changes(
             previous_device,
             offline_device,
@@ -141,9 +146,11 @@ def main():
 
         detected_changes.extend(changes)
 
+        # Update database and record the offline event.
         mark_device_offline(mac_address)
         record_scan_history(offline_device)
 
+    # Display the updated network inventory.
     devices = get_all_devices()
 
     print()
@@ -164,17 +171,20 @@ def main():
     print("-" * 60)
 
     online_count = sum(
-        1 for device in devices if device[6] == "online"
+        1 for device in devices
+        if device[6] == "online"
     )
 
     offline_count = sum(
-        1 for device in devices if device[6] == "offline"
+        1 for device in devices
+        if device[6] == "offline"
     )
 
     print(f"Known devices: {len(devices)}")
     print(f"Online: {online_count}")
     print(f"Offline: {offline_count}")
 
+    # Display detected network changes.
     print("\nNetwork Changes")
     print("-" * 60)
 
@@ -183,6 +193,55 @@ def main():
             print_change(change)
     else:
         print("No confirmed network changes detected.")
+
+    # ---------------------------------------------
+    # SECURITY MONITORING
+    # ---------------------------------------------
+
+    print("\nSecurity Review")
+    print("-" * 60)
+
+    try:
+        # Compare scanned devices against trusted MACs.
+        unrecognized = check_unrecognized_devices(
+            scan_results
+        )
+
+    except (OSError, ValueError) as error:
+        # Missing or invalid configuration should not
+        # interrupt normal network monitoring.
+        print(f"[SECURITY SKIPPED] {error}")
+
+    else:
+        if unrecognized:
+            print(
+                f"Unrecognized devices: {len(unrecognized)}"
+            )
+
+            for device in unrecognized:
+                hostname = (
+                    device.get("hostname") or "Unknown"
+                )
+
+                ip_address = (
+                    device.get("ip_address") or "N/A"
+                )
+
+                mac_address = device["mac_address"]
+
+                print(
+                    f"[UNRECOGNIZED DEVICE] "
+                    f"{hostname} "
+                    f"({ip_address}) "
+                    f"MAC: {mac_address}"
+                )
+
+        else:
+            print(
+                "No unrecognized online devices found."
+            )
+
+    print("\nScan complete.")
 
 
 if __name__ == "__main__":
