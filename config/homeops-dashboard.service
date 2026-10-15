@@ -1,0 +1,19 @@
+
+[Unit]
+Description=HomeOps-AI Network Monitoring Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=gab1010
+WorkingDirectory=/home/gab1010/HomeOps-AI
+ExecStart=/usr/bin/python3 -m homeops.dashboard
+
+Restart=on-failure
+RestartSec=5
+
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
