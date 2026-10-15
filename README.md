@@ -1,5 +1,7 @@
 # HomeOps-AI
 
+![HomeOps-AI Tests](https://github.com/GabrielBGN/HomeOps-AI/actions/workflows/tests.yml/badge.svg)
+
 HomeOps-AI is a Raspberry Pi-based home network operations platform designed to combine networking, cybersecurity, automation, monitoring, and AI-assisted troubleshooting into one practical homelab project.
 
 The long-term goal is to create an always-on network operations and security assistant capable of discovering devices, monitoring network health, detecting infrastructure changes, storing historical telemetry, automating administrative tasks, and using AI to assist with troubleshooting and incident analysis.
