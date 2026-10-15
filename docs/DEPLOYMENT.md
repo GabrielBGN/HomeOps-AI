@@ -1,62 +1,113 @@
 
 # HomeOps-AI Deployment Guide
 
-This guide explains how to deploy HomeOps-AI updates to a
-Raspberry Pi 4 running Raspberry Pi OS.
+This guide explains how to deploy and verify HomeOps-AI
+on a Raspberry Pi 4 running Raspberry Pi OS.
 
 ## Environment
 
 - Device: Raspberry Pi 4
 - Operating system: Raspberry Pi OS Bullseye
-- Python: 3.9
+- Python: 3.9 or newer
 - Project directory: `/home/gab1010/HomeOps-AI`
 - Dashboard port: `8080`
 
 ## 1. Connect to the Raspberry Pi
 
-Open a terminal on a computer connected to the home network.
-
-Connect using SSH:
+Connect to the Raspberry Pi using SSH:
 
 ```bash
 ssh gab1010@192.168.1.109
 ```
 
-The IP address may change if the router assigns a new one.
+The IP address may change depending on the router's
+DHCP configuration.
 
-## 2. Update the repository
+## 2. Update HomeOps-AI
 
-Navigate to the project:
+Navigate to the project directory:
 
 ```bash
 cd /home/gab1010/HomeOps-AI
 ```
 
-Check for uncommitted local changes:
+Check for uncommitted changes:
 
 ```bash
 git status
 ```
 
-If there are no changes that need to be saved, pull the
-latest code:
+If there are no local changes that need to be saved,
+download the latest code:
 
 ```bash
 git pull --ff-only
 ```
 
-Do not overwrite uncommitted work.
+Do not discard uncommitted changes.
 
-## 3. Configure trusted devices
+## 3. Run a network scan
 
-Create the private trusted-device configuration:
+Before configuring trusted devices, run a manual scan:
 
 ```bash
-cp -n config/trusted_devices.example.json \
-  config/trusted_devices.json
+python3 -m homeops
 ```
 
-Edit the configuration:
+The scanner should discover devices and update the
+SQLite inventory.
+
+Review the output for errors.
+
+The Security Review may display a message indicating
+that trusted-device configuration is missing. This
+is expected during initial setup.
+
+## 4. Configure trusted devices
+
+HomeOps-AI supports interactive trusted-device setup.
+
+First, check whether the private configuration
+already exists:
+
+```bash
+ls -l config/trusted_devices.json
+```
+
+### Option A: Interactive setup (recommended)
+
+If the configuration file does not exist, run:
+
+```bash
+python3 -m homeops.trust_setup
+```
+
+The tool reads discovered devices from the database
+and displays their details.
+
+For each device:
+
+1. Review the hostname, IP address, and MAC address.
+2. Enter `y` to trust a recognized device.
+3. Enter `n` to skip an unrecognized device.
+4. Type `YES` at the final confirmation prompt.
+
+The tool creates:
+
+```text
+config/trusted_devices.json
+```
+
+The file is created with owner-only permissions.
+
+The tool will not overwrite an existing configuration.
+
+Only approve devices you recognize and authorize.
+
+### Option B: Manual configuration
+
+If the configuration file already exists, review
+and edit it instead:
 
 ```bash
 nano config/trusted_devices.json
@@ -73,16 +124,31 @@ Example:
 }
 ```
 
-Replace the example addresses with actual trusted
-device MAC addresses.
+Replace these example MAC addresses with the actual
+addresses of trusted devices.
+
+If creating the file manually for the first time,
+you may copy the example:
+
+```bash
+cp -n config/trusted_devices.example.json \
+  config/trusted_devices.json
+```
+
+After manually creating the file, restrict access:
+
+```bash
+chmod 600 config/trusted_devices.json
+```
 
 Important:
 
-- Keep this file private.
-- Do not commit it to GitHub.
-- An empty trusted list will cause every discovered
-  online device with a valid MAC to be flagged.
+- Never commit the private configuration to GitHub.
+- An empty trusted list flags every discovered online
+  device with a valid MAC address.
 - Some devices use randomized MAC addresses.
+- MAC addresses can be spoofed.
+- An unrecognized device is not automatically malicious.
 
 Validate the JSON:
 
@@ -91,15 +157,54 @@ python3 -m json.tool \
   config/trusted_devices.json
 ```
 
-## 4. Test the network scanner
+## 5. Run deployment preflight
 
-Run a manual scan:
+After configuring trusted devices, run:
+
+```bash
+python3 -m homeops.preflight
+```
+
+The preflight checker verifies:
+
+- Python version
+- Required project files
+- Private trusted-device configuration
+- Trusted MAC address validity
+
+Example successful output:
+
+```text
+HomeOps-AI Deployment Preflight
+============================================================
+[PASS] Python 3.9
+[PASS] Found homeops/__main__.py
+...
+[PASS] Trusted-device configuration is valid (5 devices)
+------------------------------------------------------------
+Preflight passed with 0 warning(s).
+```
+
+This is illustrative output.
+
+A `FAIL` means a deployment prerequisite needs
+attention.
+
+A `WARN` means deployment may proceed, but the
+reported issue should be reviewed.
+
+Preflight does not test live network connectivity,
+systemd services, or dashboard accessibility.
+
+## 6. Verify security monitoring
+
+Run another manual scan:
 
 ```bash
 python3 -m homeops
 ```
 
-Check that the output includes:
+Confirm that the output includes:
 
 - Device inventory
 - Online and offline counts
@@ -109,10 +214,10 @@ Check that the output includes:
 
 Review any unrecognized devices.
 
-An unrecognized MAC address does not necessarily
-indicate an intruder.
+Do not automatically trust an unfamiliar device
+just to clear a security warning.
 
-## 5. Install the dashboard service
+## 7. Install the dashboard
 
 Run the dashboard installer:
 
@@ -120,25 +225,29 @@ Run the dashboard installer:
 bash scripts/install_dashboard.sh
 ```
 
-Verify the dashboard service:
+Verify the service:
 
 ```bash
 sudo systemctl status \
   homeops-dashboard.service --no-pager
 ```
 
-Check the dashboard in a browser on the home network:
+Open the dashboard from a browser connected to
+the home network:
 
 ```text
 http://192.168.1.109:8080
 ```
 
-Use the Raspberry Pi's current IP address if different.
+Replace the IP address if it has changed.
 
-Do not expose port 8080 directly to the internet.
+Security note:
+
 The dashboard currently has no authentication.
+Do not forward port 8080 through your router or
+expose the dashboard directly to the internet.
 
-## 6. Verify automatic scanning
+## 8. Verify automatic network scanning
 
 Check the existing scanner timer:
 
@@ -154,17 +263,17 @@ sudo systemctl status \
   homeops.service --no-pager
 ```
 
-View recent scanner logs:
+Review recent scanner logs:
 
 ```bash
 sudo journalctl -u homeops.service \
   -n 50 --no-pager
 ```
 
-The scanner should continue running automatically
-through the systemd timer.
+The timer should continue triggering network scans
+automatically.
 
-## 7. Troubleshooting
+## 9. Troubleshooting
 
 ### Scanner fails
 
@@ -174,11 +283,11 @@ Run the scanner manually:
 python3 -m homeops
 ```
 
-Review the error output.
+Review the traceback or error message.
 
 ### Dashboard does not load
 
-Check the service:
+Check the dashboard service:
 
 ```bash
 sudo systemctl status \
@@ -192,42 +301,69 @@ sudo journalctl -u homeops-dashboard.service \
   -n 50 --no-pager
 ```
 
-### Security monitoring is skipped
+### Trusted-device setup refuses to run
 
-Verify that this file exists:
+The interactive tool does not overwrite an existing
+trusted-device configuration.
+
+Check for:
 
 ```text
 config/trusted_devices.json
 ```
 
-Validate its JSON and check the MAC address formats.
+If it exists, review and edit it manually.
 
-### Dashboard IP address changed
+### No devices appear during setup
 
-Find the Raspberry Pi's current IP:
+Run a network scan:
+
+```bash
+python3 -m homeops
+```
+
+Then retry interactive setup if the configuration
+file does not already exist.
+
+### Preflight fails
+
+Read each `FAIL` message.
+
+Check missing files, Python compatibility, and
+trusted-device configuration.
+
+### Raspberry Pi IP address changed
+
+Find the current address:
 
 ```bash
 hostname -I
 ```
 
-Use the correct address with port 8080.
+Use the current IP address when connecting to
+SSH or the dashboard.
 
-## 8. Deployment verification checklist
+## 10. Deployment verification checklist
 
 - [ ] Latest GitHub changes pulled
-- [ ] Trusted-device configuration created privately
-- [ ] JSON configuration validated
 - [ ] Manual network scan successful
-- [ ] Security Review appears in scanner output
+- [ ] Trusted devices reviewed and approved
+- [ ] Private trusted-device configuration created
+- [ ] JSON configuration validated
+- [ ] Deployment preflight passed
+- [ ] Security Review verified
 - [ ] Dashboard service running
-- [ ] Dashboard accessible from home network
+- [ ] Dashboard accessible from the home network
 - [ ] Automatic scanner timer active
 - [ ] Scanner logs checked
 - [ ] No unexpected errors
 
 ## Deployment status
 
-Code and automated tests are maintained through GitHub.
+GitHub Actions validates the project's automated tests.
 
 Raspberry Pi deployment and real-network verification
-must be completed locally.
+must still be completed locally.
+
+Do not assume successful GitHub tests guarantee that
+the live Raspberry Pi deployment is working.
