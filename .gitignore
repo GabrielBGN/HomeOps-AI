@@ -17,3 +17,6 @@ logs/
 
 *.key
 *.pem
+
+# Private network device allowlist
+config/trusted_devices.json
