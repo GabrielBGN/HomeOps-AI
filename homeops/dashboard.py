@@ -2,49 +2,133 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import escape
 
-from .database import initialize_database, get_all_devices
+from .database import (
+    initialize_database,
+    get_all_devices,
+    get_recent_scan_history,
+)
 
 HOST = "0.0.0.0"
 PORT = 8080
 
 
+def safe_text(value, default="N/A"):
+    if value is None or value == "":
+        return default
+    return escape(str(value))
+
+
 def build_dashboard():
     devices = get_all_devices()
+    history = get_recent_scan_history(limit=20)
 
-    online = sum(1 for d in devices if d[6] == "ONLINE")
-    offline = sum(1 for d in devices if d[6] == "OFFLINE")
+    online = sum(
+        1 for device in devices
+        if device[6] == "ONLINE"
+    )
 
-    rows = ""
+    offline = sum(
+        1 for device in devices
+        if device[6] == "OFFLINE"
+    )
+
+    # Build the device inventory table
+    device_rows = ""
 
     for device in devices:
-        ip, mac, hostname, vendor, first_seen, last_seen, status, missed = device
+        (
+            ip,
+            mac,
+            hostname,
+            vendor,
+            first_seen,
+            last_seen,
+            status,
+            missed,
+        ) = device
 
-        status_class = "online" if status == "ONLINE" else "offline"
+        status_class = (
+            "online" if status == "ONLINE" else "offline"
+        )
 
-        rows += f"""
+        device_rows += f"""
         <tr>
-            <td>{escape(str(hostname or "Unknown"))}</td>
-            <td>{escape(str(ip or "N/A"))}</td>
-            <td>{escape(str(mac or "N/A"))}</td>
-            <td>{escape(str(vendor or "Unknown"))}</td>
-            <td><span class="{status_class}">{escape(str(status))}</span></td>
-            <td>{escape(str(last_seen or "N/A"))}</td>
+            <td>{safe_text(hostname, "Unknown")}</td>
+            <td>{safe_text(ip)}</td>
+            <td>{safe_text(mac)}</td>
+            <td>{safe_text(vendor, "Unknown")}</td>
+            <td>
+                <span class="{status_class}">
+                    {safe_text(status)}
+                </span>
+            </td>
+            <td>{safe_text(last_seen)}</td>
         </tr>
         """
 
     if not devices:
-        rows = '<tr><td colspan="6">No devices found yet.</td></tr>'
+        device_rows = """
+        <tr>
+            <td colspan="6">No devices discovered yet.</td>
+        </tr>
+        """
+
+    # Build the recent scan history table
+    history_rows = ""
+
+    for record in history:
+        hostname = record.get("hostname")
+        ip = record.get("ip_address")
+        status = record.get("status")
+        latency = record.get("latency_ms")
+        timestamp = record.get("timestamp")
+
+        status_class = (
+            "online" if status == "ONLINE" else "offline"
+        )
+
+        if isinstance(latency, (int, float)):
+            latency_text = f"{latency:.1f} ms"
+        else:
+            latency_text = "N/A"
+
+        history_rows += f"""
+        <tr>
+            <td>{safe_text(timestamp)}</td>
+            <td>{safe_text(hostname, "Unknown")}</td>
+            <td>{safe_text(ip)}</td>
+            <td>
+                <span class="{status_class}">
+                    {safe_text(status)}
+                </span>
+            </td>
+            <td>{latency_text}</td>
+        </tr>
+        """
+
+    if not history:
+        history_rows = """
+        <tr>
+            <td colspan="5">No scan history available.</td>
+        </tr>
+        """
 
     return f"""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport"
+              content="width=device-width, initial-scale=1">
         <meta http-equiv="refresh" content="30">
+
         <title>HomeOps-AI Dashboard</title>
 
         <style>
+            * {{
+                box-sizing: border-box;
+            }}
+
             body {{
                 font-family: Arial, sans-serif;
                 background: #0f172a;
@@ -53,7 +137,18 @@ def build_dashboard():
                 padding: 30px;
             }}
 
-            h1 {{ color: #38bdf8; }}
+            h1 {{
+                color: #38bdf8;
+                margin-bottom: 5px;
+            }}
+
+            h2 {{
+                margin-top: 35px;
+            }}
+
+            .subtitle {{
+                color: #94a3b8;
+            }}
 
             .stats {{
                 display: flex;
@@ -64,9 +159,15 @@ def build_dashboard():
 
             .card {{
                 background: #1e293b;
-                padding: 20px;
+                padding: 22px;
                 border-radius: 10px;
+                flex: 1;
                 min-width: 150px;
+            }}
+
+            .card-label {{
+                color: #94a3b8;
+                font-size: 14px;
             }}
 
             .number {{
@@ -75,51 +176,77 @@ def build_dashboard():
                 margin-top: 10px;
             }}
 
-            .table-container {{ overflow-x: auto; }}
+            .table-container {{
+                overflow-x: auto;
+                background: #1e293b;
+                border-radius: 10px;
+            }}
 
             table {{
                 width: 100%;
                 border-collapse: collapse;
-                background: #1e293b;
             }}
 
             th, td {{
                 padding: 14px;
-                border-bottom: 1px solid #334155;
                 text-align: left;
+                border-bottom: 1px solid #334155;
+                white-space: nowrap;
             }}
 
-            th {{ color: #38bdf8; }}
+            th {{
+                color: #38bdf8;
+                background: #1e293b;
+            }}
 
-            .online {{ color: #4ade80; font-weight: bold; }}
-            .offline {{ color: #f87171; font-weight: bold; }}
+            tr:hover {{
+                background: #334155;
+            }}
+
+            .online {{
+                color: #4ade80;
+                font-weight: bold;
+            }}
+
+            .offline {{
+                color: #f87171;
+                font-weight: bold;
+            }}
 
             .footer {{
-                margin-top: 25px;
+                margin-top: 30px;
                 color: #94a3b8;
                 font-size: 13px;
+            }}
+
+            @media (max-width: 600px) {{
+                body {{
+                    padding: 15px;
+                }}
             }}
         </style>
     </head>
 
     <body>
         <h1>HomeOps-AI</h1>
-        <p>Network Monitoring Dashboard</p>
+        <p class="subtitle">
+            Raspberry Pi Network Monitoring Dashboard
+        </p>
 
         <div class="stats">
             <div class="card">
-                Total Devices
+                <div class="card-label">Total Devices</div>
                 <div class="number">{len(devices)}</div>
             </div>
 
             <div class="card">
-                Online
-                <div class="number">{online}</div>
+                <div class="card-label">Online Devices</div>
+                <div class="number online">{online}</div>
             </div>
 
             <div class="card">
-                Offline
-                <div class="number">{offline}</div>
+                <div class="card-label">Offline Devices</div>
+                <div class="number offline">{offline}</div>
             </div>
         </div>
 
@@ -127,20 +254,46 @@ def build_dashboard():
 
         <div class="table-container">
             <table>
-                <tr>
-                    <th>Hostname</th>
-                    <th>IP Address</th>
-                    <th>MAC Address</th>
-                    <th>Vendor</th>
-                    <th>Status</th>
-                    <th>Last Seen</th>
-                </tr>
-                {rows}
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>IP Address</th>
+                        <th>MAC Address</th>
+                        <th>Vendor</th>
+                        <th>Status</th>
+                        <th>Last Seen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {device_rows}
+                </tbody>
+            </table>
+        </div>
+
+        <h2>Recent Scan History</h2>
+        <p class="subtitle">
+            Latest 20 recorded device scan results
+        </p>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Device</th>
+                        <th>IP Address</th>
+                        <th>Status</th>
+                        <th>Latency</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {history_rows}
+                </tbody>
             </table>
         </div>
 
         <div class="footer">
-            Dashboard refreshes every 30 seconds.
+            Dashboard automatically refreshes every 30 seconds.
         </div>
     </body>
     </html>
@@ -156,11 +309,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             page = build_dashboard().encode("utf-8")
         except Exception:
-            self.send_error(500, "Dashboard data unavailable")
+            self.send_error(
+                500,
+                "Dashboard data unavailable"
+            )
             return
 
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header(
+            "Content-Type",
+            "text/html; charset=utf-8"
+        )
         self.send_header("Content-Length", str(len(page)))
         self.end_headers()
         self.wfile.write(page)
@@ -169,7 +328,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 def main():
     initialize_database()
 
-    server = ThreadingHTTPServer((HOST, PORT), DashboardHandler)
+    server = ThreadingHTTPServer(
+        (HOST, PORT),
+        DashboardHandler
+    )
 
     print(f"HomeOps-AI Dashboard running on port {PORT}")
     print("Press Ctrl+C to stop.")
