@@ -1,3 +1,4 @@
+
 """Database utilities for HomeOps-AI."""
 
 import sqlite3
@@ -36,8 +37,8 @@ def initialize_database():
         """
     )
 
-    # Upgrade older HomeOps-AI databases that do not yet
-    # contain the missed_scans column.
+    # Upgrade older databases that do not yet contain
+    # the missed_scans column.
     cursor.execute("PRAGMA table_info(devices)")
     columns = [column[1] for column in cursor.fetchall()]
 
@@ -60,6 +61,27 @@ def initialize_database():
             latency_ms REAL,
             FOREIGN KEY (device_id) REFERENCES devices(id)
         )
+        """
+    )
+
+    # HomeOps-AI v1.1.0: Persistent network alerts.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_type TEXT NOT NULL,
+            mac_address TEXT,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            is_read INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_alerts_created_at
+        ON alerts(created_at DESC)
         """
     )
 
@@ -301,7 +323,6 @@ def get_all_devices():
     )
 
     devices = cursor.fetchall()
-
     connection.close()
 
     return devices
@@ -348,6 +369,121 @@ def get_recent_scan_history(limit=20):
         )
 
     return history
+
+
+# --------------------------------------------------
+# Network alert functions (HomeOps-AI v1.1.0)
+# --------------------------------------------------
+
+
+def create_alert(alert_type, mac_address, message):
+    """Save a new network alert."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        INSERT INTO alerts (
+            alert_type,
+            mac_address,
+            message,
+            created_at,
+            is_read
+        )
+        VALUES (?, ?, ?, ?, 0)
+        """,
+        (
+            alert_type,
+            mac_address,
+            message,
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+
+    alert_id = cursor.lastrowid
+
+    connection.commit()
+    connection.close()
+
+    return alert_id
+
+
+def get_recent_alerts(limit=50):
+    """Return recent alerts, newest first."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            alert_type,
+            mac_address,
+            message,
+            created_at,
+            is_read
+        FROM alerts
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+    rows = cursor.fetchall()
+    connection.close()
+
+    return [
+        {
+            "id": row[0],
+            "alert_type": row[1],
+            "mac_address": row[2],
+            "message": row[3],
+            "created_at": row[4],
+            "is_read": bool(row[5]),
+        }
+        for row in rows
+    ]
+
+
+def get_unread_alert_count():
+    """Return the number of unread alerts."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM alerts
+        WHERE is_read = 0
+        """
+    )
+
+    count = cursor.fetchone()[0]
+    connection.close()
+
+    return count
+
+
+def mark_alert_read(alert_id):
+    """Mark a single alert as read."""
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        UPDATE alerts
+        SET is_read = 1
+        WHERE id = ?
+        """,
+        (alert_id,),
+    )
+
+    updated = cursor.rowcount
+
+    connection.commit()
+    connection.close()
+
+    return updated > 0
 
 
 if __name__ == "__main__":
