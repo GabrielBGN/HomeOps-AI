@@ -18,18 +18,23 @@ def safe_text(value, default="N/A"):
     return escape(str(value))
 
 
+def normalize_status(status):
+    """Normalize device status regardless of letter case."""
+    return str(status or "UNKNOWN").strip().upper()
+
+
 def build_dashboard():
     devices = get_all_devices()
     history = get_recent_scan_history(limit=20)
 
     online = sum(
         1 for device in devices
-        if device[6] == "ONLINE"
+        if normalize_status(device[6]) == "ONLINE"
     )
 
     offline = sum(
         1 for device in devices
-        if device[6] == "OFFLINE"
+        if normalize_status(device[6]) == "OFFLINE"
     )
 
     # Build the device inventory table
@@ -47,8 +52,12 @@ def build_dashboard():
             missed,
         ) = device
 
+        normalized_status = normalize_status(status)
+
         status_class = (
-            "online" if status == "ONLINE" else "offline"
+            "online"
+            if normalized_status == "ONLINE"
+            else "offline"
         )
 
         device_rows += f"""
@@ -59,7 +68,7 @@ def build_dashboard():
             <td>{safe_text(vendor, "Unknown")}</td>
             <td>
                 <span class="{status_class}">
-                    {safe_text(status)}
+                    {safe_text(normalized_status)}
                 </span>
             </td>
             <td>{safe_text(last_seen)}</td>
@@ -83,8 +92,12 @@ def build_dashboard():
         latency = record.get("latency_ms")
         timestamp = record.get("timestamp")
 
+        normalized_status = normalize_status(status)
+
         status_class = (
-            "online" if status == "ONLINE" else "offline"
+            "online"
+            if normalized_status == "ONLINE"
+            else "offline"
         )
 
         if isinstance(latency, (int, float)):
@@ -99,7 +112,7 @@ def build_dashboard():
             <td>{safe_text(ip)}</td>
             <td>
                 <span class="{status_class}">
-                    {safe_text(status)}
+                    {safe_text(normalized_status)}
                 </span>
             </td>
             <td>{latency_text}</td>
@@ -123,7 +136,6 @@ def build_dashboard():
         <meta http-equiv="refresh" content="30">
 
         <title>HomeOps-AI Dashboard</title>
-
         <style>
             * {{
                 box-sizing: border-box;
@@ -251,7 +263,6 @@ def build_dashboard():
         </div>
 
         <h2>Network Inventory</h2>
-
         <div class="table-container">
             <table>
                 <thead>
