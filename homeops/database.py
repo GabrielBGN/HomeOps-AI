@@ -85,6 +85,28 @@ def initialize_database():
         """
     )
 
+    # HomeOps-AI v1.2.0: Per-device scan observations.
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scan_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id INTEGER NOT NULL,
+            timestamp TEXT NOT NULL,
+            observed_status TEXT NOT NULL,
+            confirmed_status TEXT NOT NULL,
+            latency_ms REAL,
+            FOREIGN KEY (device_id) REFERENCES devices(id)
+        )
+        """
+    )
+
+    cursor.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scan_observations_device_time
+        ON scan_observations(device_id, timestamp DESC)
+        """
+    )
+
     connection.commit()
     connection.close()
 
@@ -299,6 +321,98 @@ def record_scan_history(device):
 
     connection.commit()
     connection.close()
+
+
+
+def record_scan_observation(mac_address, observed_status, confirmed_status, latency_ms=None):
+    """Record a known device's observation for one completed network scan.
+
+    observed_status is SEEN or MISSED; confirmed_status is ONLINE or OFFLINE.
+    Call once per known device per completed scan, including already-offline devices.
+    """
+    observed_status = observed_status.upper()
+    confirmed_status = confirmed_status.upper()
+    if observed_status not in ("SEEN", "MISSED"):
+        raise ValueError("observed_status must be SEEN or MISSED")
+    if confirmed_status not in ("ONLINE", "OFFLINE"):
+        raise ValueError("confirmed_status must be ONLINE or OFFLINE")
+
+    connection = get_connection()
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT id FROM devices WHERE mac_address = ?",
+            (mac_address,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return False
+
+        cursor.execute(
+            """
+            INSERT INTO scan_observations (
+                device_id, timestamp, observed_status, confirmed_status, latency_ms
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                row[0],
+                datetime.now().isoformat(timespec="seconds"),
+                observed_status,
+                confirmed_status,
+                latency_ms if observed_status == "SEEN" else None,
+            ),
+        )
+        connection.commit()
+        return True
+    finally:
+        connection.close()
+
+
+def get_device_availability():
+    """Return scan-based observed availability for every known device.
+
+    Availability is the percentage of SEEN observations, not continuous uptime.
+    Devices with no observations have availability_pct=None.
+    """
+    connection = get_connection()
+    try:
+        rows = connection.execute(
+            """
+            SELECT
+                devices.mac_address,
+                devices.hostname,
+                devices.ip_address,
+                devices.status,
+                COUNT(scan_observations.id) AS total_observations,
+                COUNT(CASE WHEN scan_observations.observed_status = 'SEEN'
+                           THEN 1 END) AS seen_count,
+                COUNT(CASE WHEN scan_observations.observed_status = 'MISSED'
+                           THEN 1 END) AS missed_count
+            FROM devices
+            LEFT JOIN scan_observations
+                ON scan_observations.device_id = devices.id
+            GROUP BY devices.id
+            ORDER BY devices.ip_address
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+
+    return [
+        {
+            "mac_address": row[0],
+            "hostname": row[1],
+            "ip_address": row[2],
+            "status": row[3],
+            "total_observations": row[4],
+            "seen_count": row[5],
+            "missed_count": row[6],
+            "availability_pct": (
+                round(row[5] / row[4] * 100, 2) if row[4] else None
+            ),
+        }
+        for row in rows
+    ]
 
 
 def get_all_devices():

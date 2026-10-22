@@ -1,4 +1,3 @@
-
 """Tests for the HomeOps-AI dashboard."""
 
 from unittest.mock import patch
@@ -24,6 +23,9 @@ def render_dashboard(devices, history, alerts=None, unread_count=0):
     ), patch(
         "homeops.dashboard.get_unread_alert_count",
         return_value=unread_count,
+    ), patch(
+        "homeops.dashboard.get_device_availability",
+        return_value=[],
     ):
         return build_dashboard()
 

@@ -1,4 +1,3 @@
-
 """Tests for the HomeOps-AI main scanning workflow."""
 
 import pytest
@@ -79,6 +78,13 @@ def mock_network(monkeypatch):
         main_module,
         "record_scan_history",
         lambda device: None,
+    )
+
+    # v1.2.0: keep observation recording out of the real SQLite database.
+    monkeypatch.setattr(
+        main_module,
+        "record_scan_observation",
+        lambda mac_address, observed_status, confirmed_status, latency_ms=None: True,
     )
 
     monkeypatch.setattr(
