@@ -9,6 +9,7 @@ from .database import (
     initialize_database,
     get_all_devices,
     get_recent_scan_history,
+    get_device_availability,
     get_recent_alerts,
     get_unread_alert_count,
     mark_alert_read,
@@ -37,6 +38,7 @@ def build_dashboard():
     history = get_recent_scan_history(limit=20)
     alerts = get_recent_alerts(limit=30)
     unread_count = get_unread_alert_count()
+    availability = get_device_availability()
 
     online = sum(
         1 for device in devices
@@ -94,6 +96,42 @@ def build_dashboard():
         <tr>
             <td colspan="6">No devices discovered yet.</td>
         </tr>
+        """
+
+    # ---------------------------------------------
+    # NETWORK ANALYTICS (HomeOps-AI v1.2.0)
+    # ---------------------------------------------
+
+    availability_rows = ""
+
+    for device in availability:
+        observed_count = device["total_observations"]
+        availability_pct = device["availability_pct"]
+        availability_text = (
+            f"{availability_pct:.2f}%"
+            if availability_pct is not None
+            else "N/A"
+        )
+        normalized_status = normalize_status(device["status"])
+        status_class = (
+            "online" if normalized_status == "ONLINE" else "offline"
+        )
+
+        availability_rows += f"""
+        <tr>
+            <td>{safe_text(device["hostname"], "Unknown")}</td>
+            <td>{safe_text(device["ip_address"])}</td>
+            <td><span class="{status_class}">{safe_text(normalized_status)}</span></td>
+            <td>{availability_text}</td>
+            <td>{int(device["seen_count"])}</td>
+            <td>{int(device["missed_count"])}</td>
+            <td>{int(observed_count)}</td>
+        </tr>
+        """
+
+    if not availability:
+        availability_rows = """
+        <tr><td colspan="7">No devices discovered yet.</td></tr>
         """
 
     # ---------------------------------------------
@@ -467,6 +505,33 @@ def build_dashboard():
                 </thead>
                 <tbody>
                     {device_rows}
+                </tbody>
+            </table>
+        </div>
+
+        <h2>Network Analytics: Device Availability</h2>
+        <p class="subtitle">
+            Percentage of recorded scans in which each device was seen.
+            A missed discovery response does not necessarily mean a device
+            was disconnected. N/A means no observations have been recorded.
+            Historical observations begin when v1.2.0 tracking is enabled.
+        </p>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Hostname</th>
+                        <th>IP Address</th>
+                        <th>Current Status</th>
+                        <th>Observed Availability</th>
+                        <th>Seen</th>
+                        <th>Missed</th>
+                        <th>Total Observations</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {availability_rows}
                 </tbody>
             </table>
         </div>

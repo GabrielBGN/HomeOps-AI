@@ -1,4 +1,3 @@
-
 """Main entry point for HomeOps-AI."""
 
 from .database import (
@@ -7,6 +6,7 @@ from .database import (
     get_all_devices,
     get_device_by_mac,
     record_scan_history,
+    record_scan_observation,
     increment_missed_scan,
     mark_device_offline,
     create_alert,
@@ -191,6 +191,12 @@ def main():
 
         save_device(device)
         record_scan_history(device)
+        record_scan_observation(
+            mac_address,
+            "SEEN",
+            "ONLINE",
+            device.get("latency_ms"),
+        )
 
     # Check known devices not seen in this scan.
     known_devices = get_all_devices()
@@ -211,6 +217,8 @@ def main():
             continue
 
         if status.upper() == "OFFLINE":
+            # Already offline: keep tracking missed observations.
+            record_scan_observation(mac_address, "MISSED", "OFFLINE")
             continue
 
         missed_scans = increment_missed_scan(mac_address)
@@ -222,6 +230,8 @@ def main():
         )
 
         if missed_scans < OFFLINE_THRESHOLD:
+            # The device was not seen, but has not been confirmed offline.
+            record_scan_observation(mac_address, "MISSED", "ONLINE")
             continue
 
         previous_device = {
@@ -253,6 +263,7 @@ def main():
 
         mark_device_offline(mac_address)
         record_scan_history(offline_device)
+        record_scan_observation(mac_address, "MISSED", "OFFLINE")
 
     # Display the updated network inventory.
     devices = get_all_devices()
