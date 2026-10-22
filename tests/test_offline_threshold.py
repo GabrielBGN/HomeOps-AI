@@ -1,4 +1,3 @@
-
 """Tests for HomeOps-AI offline detection."""
 
 import pytest
@@ -14,6 +13,7 @@ def mock_environment(monkeypatch):
         "missed": [],
         "offline": [],
         "history": [],
+        "observations": [],
     }
 
     known_device = (
@@ -60,6 +60,16 @@ def mock_environment(monkeypatch):
 
     monkeypatch.setattr(
         main_module,
+        "record_scan_observation",
+        lambda mac, observed_status, confirmed_status, latency_ms=None: (
+            events["observations"].append(
+                (mac, observed_status, confirmed_status, latency_ms)
+            )
+        ),
+    )
+
+    monkeypatch.setattr(
+        main_module,
         "mark_device_offline",
         lambda mac: events["offline"].append(mac),
     )
@@ -95,6 +105,7 @@ def test_two_missed_scans_stays_online(
     assert events["missed"] == [device[1]]
     assert events["offline"] == []
     assert events["history"] == []
+    assert events["observations"] == [(device[1], "MISSED", "ONLINE", None)]
 
 
 def test_three_missed_scans_marks_offline(
@@ -121,6 +132,7 @@ def test_three_missed_scans_marks_offline(
     assert len(events["history"]) == 1
     assert events["history"][0]["status"] == "OFFLINE"
     assert events["history"][0]["mac_address"] == device[1]
+    assert events["observations"] == [(device[1], "MISSED", "OFFLINE", None)]
 
 
 def test_already_offline_device_is_skipped(
@@ -162,3 +174,4 @@ def test_already_offline_device_is_skipped(
 
     assert events["offline"] == []
     assert events["history"] == []
+    assert events["observations"] == [(device[1], "MISSED", "OFFLINE", None)]
