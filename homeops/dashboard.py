@@ -4,6 +4,16 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html import escape
 from urllib.parse import parse_qs
+from secrets import token_urlsafe, compare_digest
+from threading import Lock
+from time import monotonic
+
+
+from .ai_analyst import (
+    collect_network_health_summary,
+    analyze_network_health,
+)
+from .ai_report_view import render_ai_report
 
 from .database import (
     initialize_database,
@@ -17,6 +27,63 @@ from .database import (
 
 HOST = "127.0.0.1"
 PORT = 8080
+
+# Server-side security state. Tokens are regenerated on restart.
+AI_CSRF_TOKEN = token_urlsafe(32)
+AI_ANALYSIS_LOCK = Lock()
+AI_REPORT_LOCK = Lock()
+AI_LATEST_REPORT = None
+AI_LAST_SUCCESS = None
+AI_COOLDOWN_SECONDS = 60
+
+
+def ai_cooldown_remaining():
+    """Return seconds remaining before another AI request."""
+    with AI_REPORT_LOCK:
+        last_success = AI_LAST_SUCCESS
+
+    if last_success is None:
+        return 0
+
+    return max(
+        0,
+        AI_COOLDOWN_SECONDS - (monotonic() - last_success),
+    )
+
+
+
+def get_latest_ai_report():
+    """Return the most recently generated AI report."""
+    with AI_REPORT_LOCK:
+        return AI_LATEST_REPORT
+
+
+def save_latest_ai_report(report):
+    """Save a validated AI report in server memory."""
+    global AI_LATEST_REPORT, AI_LAST_SUCCESS
+
+    # Validate and safely render before updating shared state.
+    render_ai_report(report)
+
+    with AI_REPORT_LOCK:
+        AI_LATEST_REPORT = report
+        AI_LAST_SUCCESS = monotonic()
+
+
+
+def valid_ai_request(token, origin):
+    """Authorize a local dashboard AI form submission."""
+    if not isinstance(token, str):
+        return False
+
+    if origin not in (
+        "http://127.0.0.1:8080",
+        "http://localhost:8080",
+    ):
+        return False
+
+    return compare_digest(token, AI_CSRF_TOKEN)
+
 
 
 def safe_text(value, default="N/A"):
@@ -264,6 +331,19 @@ def build_dashboard():
         """
 
     # ---------------------------------------------
+    # AI NETWORK ANALYSIS
+    # ---------------------------------------------
+
+    latest_report = get_latest_ai_report()
+
+    if latest_report is None:
+        ai_report_html = (
+            "<p>No AI analysis generated yet.</p>"
+        )
+    else:
+        ai_report_html = render_ai_report(latest_report)
+
+    # ---------------------------------------------
     # DASHBOARD HTML
     # ---------------------------------------------
 
@@ -472,6 +552,27 @@ def build_dashboard():
             </div>
         </div>
 
+        <h2>AI Network Analyst</h2>
+        <p class="subtitle">
+            Generate an on-demand AI assessment of your network.
+            Each analysis makes a billable API request.
+        </p>
+
+        <form method="POST" action="/ai/analyze">
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{AI_CSRF_TOKEN}"
+            >
+            <button type="submit" class="read-button">
+                Generate AI Analysis
+            </button>
+        </form>
+
+        <div class="card" style="margin-top: 20px;">
+            {ai_report_html}
+        </div>
+
         <h2>Network Alerts</h2>
         <p class="subtitle">
             Latest 30 network events and security notifications
@@ -600,8 +701,89 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(page)
 
+    def handle_ai_analysis(self):
+        """Handle a manually authorized AI analysis request."""
+
+        host = self.headers.get("Host")
+        origin = self.headers.get("Origin")
+
+        if host not in ("127.0.0.1:8080", "localhost:8080"):
+            self.send_error(403, "Invalid host")
+            return
+
+        if origin != f"http://{host}":
+            self.send_error(403, "Invalid origin")
+            return
+
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.split(";")[0].strip().lower() != (
+            "application/x-www-form-urlencoded"
+        ):
+            self.send_error(415, "Unsupported content type")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_error(400, "Invalid request size")
+            return
+
+        if not 0 < length <= 1024:
+            self.send_error(400, "Invalid request size")
+            return
+
+        try:
+            form = parse_qs(
+                self.rfile.read(length).decode("utf-8"),
+                strict_parsing=True,
+            )
+            tokens = form.get("csrf_token", [])
+            if len(tokens) != 1:
+                raise ValueError("Invalid CSRF token")
+        except (UnicodeDecodeError, ValueError):
+            self.send_error(400, "Invalid form")
+            return
+
+        if not valid_ai_request(tokens[0], origin):
+            self.send_error(403, "Unauthorized request")
+            return
+
+        if not AI_ANALYSIS_LOCK.acquire(blocking=False):
+            self.send_error(409, "Analysis already running")
+            return
+
+        try:
+            if ai_cooldown_remaining() > 0:
+                self.send_error(
+                    429,
+                    "Please wait before generating another analysis",
+                )
+                return
+
+            summary = collect_network_health_summary()
+            report = analyze_network_health(summary)
+            report_html = render_ai_report(report)
+            save_latest_ai_report(report)
+        except Exception:
+            self.send_error(503, "AI analysis unavailable")
+            return
+        finally:
+            AI_ANALYSIS_LOCK.release()
+
+        # Redirect to the dashboard after saving the report.
+        # A normal page refresh will not repeat the POST.
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
     def do_POST(self):
-        """Mark a single alert as read."""
+        """Handle dashboard form submissions."""
+
+        if self.path == "/ai/analyze":
+            self.handle_ai_analysis()
+            return
 
         if self.path != "/alerts/read":
             self.send_error(404)
