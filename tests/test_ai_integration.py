@@ -13,22 +13,39 @@ from homeops.ai_analyst import (
 
 @pytest.fixture
 def sanitized_summary():
-    return {
-        "report_type": "network_health_summary",
-        "device_totals": {
-            "total": 2,
-            "online": 1,
-            "offline": 1,
-            "other": 0,
-        },
-        "devices": [],
-        "alerts": {"total": 0, "unread": 0, "by_type": {}},
-        "recent_scans": {"records_analyzed": 0},
-        "data_quality": {
-            "raw_network_addresses_included": False,
-            "alert_messages_included": False,
-        },
-    }
+    """Generate valid, anonymized network data for integration tests."""
+    from homeops.ai_analyst import build_network_health_summary
+
+    devices = [
+        (
+            "192.168.1.10",
+            "AA:BB:CC:DD:EE:01",
+            "Test-PC",
+            "Test Vendor",
+            "2026-11-01",
+            "2026-11-18",
+            "ONLINE",
+            0,
+        ),
+        (
+            "192.168.1.20",
+            "AA:BB:CC:DD:EE:02",
+            "Test-TV",
+            "Test Vendor",
+            "2026-11-01",
+            "2026-11-18",
+            "OFFLINE",
+            1,
+        ),
+    ]
+
+    return build_network_health_summary(
+        devices=devices,
+        availability=[],
+        alerts=[],
+        scan_history=[],
+        latency_histories={},
+    )
 
 
 @pytest.fixture

@@ -91,6 +91,8 @@ def build_network_health_summary(
         ) = device
 
         normalized_status = str(status or "UNKNOWN").strip().upper()
+        if normalized_status not in ("ONLINE", "OFFLINE"):
+            normalized_status = "UNKNOWN"
 
         if normalized_status == "ONLINE":
             online_count += 1
@@ -115,14 +117,27 @@ def build_network_health_summary(
             "latency": _latency_summary(latency_samples),
         })
 
+    allowed_alert_types = {
+        "NEW_DEVICE",
+        "DEVICE_OFFLINE",
+        "HIGH_LATENCY",
+        "LATENCY_RECOVERED",
+    }
+
     alert_counts = Counter(
-        alert.get("alert_type", "UNKNOWN")
+        alert_type if alert_type in allowed_alert_types else "UNKNOWN"
         for alert in alerts
+        for alert_type in [alert.get("alert_type")]
     )
 
     scan_status_counts = Counter(
-        str(record.get("status") or "UNKNOWN").strip().upper()
+        normalized
+        if normalized in ("ONLINE", "OFFLINE")
+        else "UNKNOWN"
         for record in scan_history
+        for normalized in [
+            str(record.get("status") or "UNKNOWN").strip().upper()
+        ]
     )
 
     recent_latency_samples = [
@@ -256,6 +271,229 @@ Important rules:
 """
 
 
+
+def validate_network_summary(summary):
+    """Validate the expected structure before sending data to an API."""
+    if not isinstance(summary, dict):
+        raise ValueError("Summary must be a dictionary")
+
+    allowed_fields = {
+        "report_type",
+        "device_totals",
+        "devices",
+        "alerts",
+        "recent_scans",
+        "data_quality",
+    }
+
+    if set(summary) != allowed_fields:
+        raise ValueError("Summary has missing or unexpected fields")
+
+    def check_keys(value, expected, label):
+        if not isinstance(value, dict) or set(value) != expected:
+            raise ValueError(f"Invalid {label} fields")
+
+    def check_count(value):
+        return type(value) is int and value >= 0
+
+    def check_latency(value):
+        check_keys(
+            value,
+            {"sample_count", "average_ms", "median_ms", "maximum_ms"},
+            "latency",
+        )
+        if not check_count(value["sample_count"]):
+            raise ValueError("Invalid latency sample count")
+
+        for key in ("average_ms", "median_ms", "maximum_ms"):
+            number = value[key]
+            if number is not None and (
+                type(number) not in (int, float)
+                or not isfinite(number)
+                or number < 0
+            ):
+                raise ValueError("Invalid latency value")
+
+    if summary["report_type"] != "network_health_summary":
+        raise ValueError("Invalid report type")
+
+    totals = summary["device_totals"]
+    check_keys(totals, {"total", "online", "offline", "other"}, "totals")
+    if not all(check_count(value) for value in totals.values()):
+        raise ValueError("Invalid device totals")
+
+    if totals["total"] != sum(
+        totals[key] for key in ("online", "offline", "other")
+    ):
+        raise ValueError("Inconsistent device totals")
+
+    devices = summary["devices"]
+    if not isinstance(devices, list) or len(devices) != totals["total"]:
+        raise ValueError("Invalid devices")
+
+    for index, device in enumerate(devices, start=1):
+        check_keys(
+            device,
+            {"device_id", "status", "missed_scans", "availability", "latency"},
+            "device",
+        )
+        if device["device_id"] != f"Device-{index:03d}":
+            raise ValueError("Invalid anonymized device ID")
+        if device["status"] not in ("ONLINE", "OFFLINE", "UNKNOWN"):
+            raise ValueError("Invalid device status")
+        if not check_count(device["missed_scans"]):
+            raise ValueError("Invalid missed scan count")
+
+        availability = device["availability"]
+        check_keys(
+            availability,
+            {"percentage", "total_observations", "seen_count", "missed_count"},
+            "availability",
+        )
+        for key in ("total_observations", "seen_count", "missed_count"):
+            if not check_count(availability[key]):
+                raise ValueError("Invalid availability count")
+
+        percentage = availability["percentage"]
+        if percentage is not None and (
+            type(percentage) not in (int, float)
+            or not isfinite(percentage)
+            or not 0 <= percentage <= 100
+        ):
+            raise ValueError("Invalid availability percentage")
+
+        check_latency(device["latency"])
+
+    alerts = summary["alerts"]
+    check_keys(alerts, {"total", "unread", "by_type"}, "alerts")
+    if not check_count(alerts["total"]) or not check_count(alerts["unread"]):
+        raise ValueError("Invalid alert counts")
+    if alerts["unread"] > alerts["total"]:
+        raise ValueError("Invalid unread count")
+    if not isinstance(alerts["by_type"], dict):
+        raise ValueError("Invalid alert types")
+
+    for name, count in alerts["by_type"].items():
+        if (
+            not isinstance(name, str)
+            or not name
+            or len(name) > 64
+            or not all(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for c in name)
+            or not check_count(count)
+        ):
+            raise ValueError("Unsafe alert type")
+
+    scans = summary["recent_scans"]
+    check_keys(
+        scans,
+        {"records_analyzed", "by_status", "latency"},
+        "recent scans",
+    )
+    if not check_count(scans["records_analyzed"]):
+        raise ValueError("Invalid scan count")
+    if not isinstance(scans["by_status"], dict):
+        raise ValueError("Invalid scan statuses")
+
+    for name, count in scans["by_status"].items():
+        if name not in ("ONLINE", "OFFLINE", "UNKNOWN") or not check_count(count):
+            raise ValueError("Invalid scan status")
+
+    check_latency(scans["latency"])
+
+    quality = summary["data_quality"]
+    check_keys(
+        quality,
+        {
+            "availability_metric",
+            "device_identifiers",
+            "raw_network_addresses_included",
+            "alert_messages_included",
+        },
+        "data quality",
+    )
+    if quality != {
+        "availability_metric": (
+            "Percentage of recorded scans where a device was seen; "
+            "not continuous uptime."
+        ),
+        "device_identifiers": "Anonymized",
+        "raw_network_addresses_included": False,
+        "alert_messages_included": False,
+    }:
+        raise ValueError("Invalid privacy metadata")
+
+    return True
+
+
+
+def validate_ai_report(report):
+    """Validate an AI-generated network health report."""
+
+    if not isinstance(report, dict):
+        raise NetworkAnalysisError(
+            "AI report must be a JSON object"
+        )
+
+    expected_fields = set(REPORT_SCHEMA["required"])
+
+    if set(report) != expected_fields:
+        raise NetworkAnalysisError(
+            "AI report has missing or unexpected fields"
+        )
+
+    allowed_health = {
+        "HEALTHY",
+        "DEGRADED",
+        "CRITICAL",
+        "UNKNOWN",
+    }
+
+    allowed_severity = {
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+    }
+
+    if report["overall_health"] not in allowed_health:
+        raise NetworkAnalysisError(
+            "AI report contains invalid health status"
+        )
+
+    if report["severity"] not in allowed_severity:
+        raise NetworkAnalysisError(
+            "AI report contains invalid severity"
+        )
+
+    if not isinstance(report["executive_summary"], str):
+        raise NetworkAnalysisError(
+            "AI executive summary must be text"
+        )
+
+    if not report["executive_summary"].strip():
+        raise NetworkAnalysisError(
+            "AI executive summary cannot be empty"
+        )
+
+    for field in ("findings", "recommendations", "limitations"):
+        values = report[field]
+
+        if not isinstance(values, list):
+            raise NetworkAnalysisError(
+                f"AI report field '{field}' must be a list"
+            )
+
+        if not all(
+            isinstance(item, str) and item.strip()
+            for item in values
+        ):
+            raise NetworkAnalysisError(
+                f"AI report field '{field}' contains invalid entries"
+            )
+
+    return report
+
+
 def analyze_network_health(summary, client=None, model=None):
     """
     Generate a structured AI network health report.
@@ -263,16 +501,7 @@ def analyze_network_health(summary, client=None, model=None):
     The caller supplies an already-sanitized summary.
     This function never accesses SQLite or performs network scans.
     """
-    if not isinstance(summary, dict):
-        raise ValueError("summary must be a dictionary")
-
-    data_quality = summary.get("data_quality", {})
-
-    if data_quality.get("raw_network_addresses_included") is not False:
-        raise ValueError("Summary must confirm that network addresses are excluded")
-
-    if data_quality.get("alert_messages_included") is not False:
-        raise ValueError("Summary must confirm that alert messages are excluded")
+    validate_network_summary(summary)
 
     model = model or os.getenv("OPENAI_MODEL")
 
@@ -315,7 +544,7 @@ def analyze_network_health(summary, client=None, model=None):
 
         report = json.loads(response.output_text)
 
-        return report
+        return validate_ai_report(report)
 
     except NetworkAnalysisError:
         raise
