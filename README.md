@@ -2,135 +2,350 @@
 
 [![HomeOps-AI Tests](https://github.com/GabrielBGN/HomeOps-AI/actions/workflows/tests.yml/badge.svg)](https://github.com/GabrielBGN/HomeOps-AI/actions/workflows/tests.yml)
 
-**HomeOps-AI** is a Python-based home-network monitoring and security project designed for a Raspberry Pi 4. It combines network discovery, persistent device tracking, automated scanning, security alerts, and historical availability analytics in a lightweight web dashboard. The long-term goal is to add AI-assisted network analysis and troubleshooting.
+**HomeOps-AI** is a Python-based network monitoring and AI-assisted troubleshooting platform built for a Raspberry Pi 4.
 
-**Latest release:** `v1.2.0` — Network Analytics  
+It combines automated network discovery, persistent device tracking, connectivity monitoring, latency analytics, security alerts, and an on-demand **AI Network Analyst** into a lightweight web dashboard.
+
+**Latest release:** `v1.4.0` — AI Network Analyst  
+**Platform:** Raspberry Pi 4 / Linux  
+**Deployment status:** Successfully deployed and verified on Raspberry Pi  
 **Repository:** https://github.com/GabrielBGN/HomeOps-AI
 
 ## Features
 
-- **Network inventory:** Track discovered devices using IP address, MAC address, hostname, vendor, first/last seen timestamps, and connectivity status.
-- **Change detection:** Identify newly discovered devices, IP address changes, and online/offline transitions.
-- **Security monitoring:** Flag unrecognized devices and display alerts for new, offline, and returning devices.
-- **Offline threshold:** Mark a previously online device offline after three consecutive missed scans, reducing false alerts from transient failures.
-- **Historical telemetry:** Store scan history and latency observations in SQLite.
-- **Network analytics (v1.2.0):** Record `SEEN`/`MISSED` observations and calculate per-device availability from recorded scans.
-- **Web dashboard:** View device inventory, alerts, scan history, and availability metrics in a browser.
-- **Automated scanning:** A Linux `systemd` service and timer run the Python scanner every five minutes on the Raspberry Pi deployment.
-- **Automated testing:** `pytest` test suite and GitHub Actions continuous integration; 82 tests passed at the v1.2.0 release.
+### Network Monitoring
+- Discover devices connected to a local network.
+- Maintain a persistent SQLite inventory of discovered devices.
+- Track IP addresses, MAC addresses, hostnames, vendors, and connectivity status.
+- Detect newly discovered devices and IP address changes.
+- Identify devices transitioning between online and offline states.
+- Apply a three-consecutive-missed-scans threshold before marking previously online devices offline.
 
-> **Availability metric:** The displayed percentage represents the proportion of recorded scans in which a device was observed (`SEEN` / total observations × 100). It is **not** a continuous uptime or SLA measurement.
+### Network Analytics
+- Record historical scan observations and device latency.
+- Calculate per-device availability using `SEEN` and `MISSED` observations.
+- Detect elevated latency and subsequent recovery.
+- Display network history and performance information in a web dashboard.
+
+**Note:** Device availability represents the percentage of recorded scans in which a device was observed. It does not measure continuous uptime.
+
+### AI Network Analyst — v1.4.0
+
+HomeOps-AI integrates with the OpenAI API to generate on-demand network health assessments.
+
+The AI Network Analyst provides:
+
+- Network health classification and severity assessment.
+- Executive summaries of network conditions.
+- Analysis of device availability and latency patterns.
+- Identification of potential connectivity issues.
+- Actionable troubleshooting recommendations.
+- Explanations of data limitations and diagnostic uncertainty.
+
+**Privacy-conscious design:**
+- Network identifiers are sanitized before AI analysis.
+- Raw IP addresses, MAC addresses, and hostnames are not intentionally included in AI requests.
+- OpenAI API credentials remain in local environment configuration.
+- AI analysis is initiated manually rather than automatically during every scan.
+- API requests use `store=False`.
+
+Each generated analysis makes a billable OpenAI API request.
+
+### Web Dashboard
+
+The dashboard provides a browser-based interface for:
+
+- Total, online, and offline device counts.
+- Unread network alerts.
+- Device inventory and connectivity status.
+- Historical device availability.
+- Recent scan results and latency measurements.
+- AI-generated network health assessments.
+
+The dashboard automatically refreshes monitoring information.
+
+### Automation and Reliability
+
+- Linux `systemd` service and timer for scheduled network scanning.
+- Approximately five-minute scan intervals.
+- Separate `systemd` service for the dashboard.
+- Persistent SQLite storage across restarts.
+- Python virtual environment for dependency isolation.
+- Automated testing with `pytest` and GitHub Actions.
 
 ## Architecture
 
 ```text
-              Home network
-                   |
-                   v
-          Python network scanner <--- systemd timer (every 5 min)
-                   |
-                   v
-         Device/change detection
-                   |
-          +--------+---------+
-          |                  |
-          v                  v
-    Device inventory     Alerts / events
-          |                  |
-          +--------+---------+
-                   |
-                   v
-      SQLite scan history + observations
-                   |
-                   v
-        Python web dashboard (:8080)
-                   |
-                   v
-       Future AI analysis / assistant
+                  Home Network
+                       |
+                       v
+               Network Discovery
+                       |
+                       v
+              Python Scanner
+                       ^
+                       |
+                systemd Timer
+                 (~5 minutes)
+                       |
+                       v
+              Device Monitoring
+                 /         \
+                v           v
+          Connectivity    Latency
+            Tracking      Analysis
+                \           /
+                 v         v
+                 SQLite Database
+                        |
+                        v
+                Web Dashboard
+                 127.0.0.1:8080
+                        |
+                  Manual Request
+                        |
+                        v
+                AI Network Analyst
+                        |
+                 Sanitized Summary
+                        |
+                        v
+                    OpenAI API
+                        |
+                        v
+               Network Health Report
 ```
 
-**Technology stack:** Python, Raspberry Pi 4, Linux, `systemd`, SQLite, TCP/IP networking, `pytest`, Git, and GitHub Actions.
+## Technology Stack
 
-## Getting started
+| Component | Technology |
+|---|---|
+| Hardware | Raspberry Pi 4 |
+| Programming language | Python |
+| Operating system | Linux |
+| Network monitoring | Python-based network discovery |
+| Database | SQLite |
+| Service management | systemd |
+| AI integration | OpenAI API |
+| Dashboard | Python HTTP server |
+| Testing | pytest |
+| CI/CD | GitHub Actions |
+| Version control | Git and GitHub |
+| Remote administration | SSH |
 
-Clone the repository and create a Python virtual environment:
+## Getting Started
+
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/GabrielBGN/HomeOps-AI.git
 cd HomeOps-AI
+```
+
+### 2. Create a Virtual Environment
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
 python -m pip install -r requirements.txt
 ```
 
-Run a scan manually:
+### 4. Configure OpenAI (Optional)
+
+Create a `.env` file in the project directory:
+
+```dotenv
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+Restrict file permissions:
+
+```bash
+chmod 600 .env
+```
+
+The network scanner and dashboard monitoring features can operate without an OpenAI API key. A key is required to generate AI network analyses.
+
+**Never commit `.env` or expose API credentials in screenshots, logs, or public repositories.**
+
+### 5. Run the Network Scanner
 
 ```bash
 python -m homeops
 ```
 
-Run the automated tests:
+### 6. Start the Dashboard
+
+```bash
+python -m homeops.dashboard
+```
+
+By default, the dashboard listens on:
+
+```text
+http://127.0.0.1:8080/
+```
+
+### 7. Run Automated Tests
 
 ```bash
 python -m pytest -q
 ```
 
-The web dashboard runs on port **8080** in the Raspberry Pi setup. See the repository's dashboard entry point and deployment configuration for the appropriate startup command. Run network discovery only on networks you own or are authorized to monitor.
+## Raspberry Pi Deployment
 
-### Raspberry Pi automation
+HomeOps-AI is deployed on a Raspberry Pi with two systemd services:
 
-The deployed monitoring workflow uses **two systemd units**:
+- `homeops.service` — Executes the network scanner.
+- `homeops-dashboard.service` — Runs the web dashboard.
 
-1. A **service** starts the Python scanner.
-2. A **timer** triggers the service every five minutes, without requiring an open terminal.
+A separate `homeops.timer` schedules periodic scans.
 
-To inspect configured timers on the Pi:
+### Check Service Status
+
+```bash
+systemctl status homeops-dashboard.service
+systemctl status homeops.timer
+```
+
+### View Scheduled Scans
 
 ```bash
 systemctl list-timers --all
 ```
 
-The timer handles scheduling; Python performs the actual scan. Bash or shell commands are used for installation and administration, not as the primary scheduling mechanism.
+### View Dashboard Logs
 
-> **Deployment status:** v1.2.0 was merged, tagged, and tested in CI. Deployment and live verification of this version on the Raspberry Pi are still pending.
+```bash
+journalctl -u homeops-dashboard.service -n 30 --no-pager
+```
 
-## Data and detection logic
+### Access the Dashboard Remotely
 
-SQLite persists device state, alerts, scan history, and per-scan observations. Devices are primarily tracked by MAC address, so an IP address change does not necessarily create a new device identity.
+The v1.4.0 dashboard binds to localhost to reduce network exposure.
 
-A missing response is recorded as `MISSED`; after **three consecutive missed scans**, a previously online device is marked offline. Successful detection records `SEEN` and supports recovery tracking. The analytics dashboard calculates scan-based availability from these observations.
+From a remote computer, establish an SSH tunnel:
 
-## Releases
+```bash
+ssh -N -L 8080:127.0.0.1:8080 <pi-user>@<pi-host>
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/
+```
+
+The local port must match the dashboard's configured allowed host and origin for AI analysis requests.
+
+The Raspberry Pi continues monitoring independently when the SSH session is disconnected. The tunnel is only needed for remote dashboard access.
+
+## Data and Detection Logic
+
+HomeOps-AI uses SQLite to preserve monitoring information, including:
+
+- Discovered device inventory.
+- Device connectivity status.
+- Network alerts.
+- Scan history.
+- Latency observations.
+- Per-device availability observations.
+
+Devices are primarily tracked by MAC address.
+
+When a device does not respond to discovery, HomeOps-AI records a `MISSED` observation. After three consecutive missed scans, a previously online device is marked offline.
+
+A successful observation records `SEEN` and supports reconnection detection.
+
+Device availability is calculated as:
+
+```text
+Availability (%) = SEEN observations / Total observations × 100
+```
+
+A missed scan response does not necessarily indicate a physical network outage. Wireless power-saving behavior, device shutdowns, or discovery limitations can affect monitoring results.
+
+## Release History
 
 | Version | Highlights |
-| --- | --- |
-| **v1.0.0** | Device discovery, persistent SQLite inventory, scan history, initial web dashboard, scheduled scans |
-| **v1.1.0** | New-device and connectivity alerts, unread alert counts, mark-as-read workflow |
-| **v1.2.0** | `SEEN`/`MISSED` scan observations, device availability calculations, Network Analytics dashboard |
+|---|---|
+| **v1.0.0** | Network discovery, SQLite inventory, scan history, web dashboard, scheduled scans |
+| **v1.1.0** | Connectivity alerts, unread alert counts, mark-as-read functionality |
+| **v1.2.0** | Device availability tracking, `SEEN`/`MISSED` observations, historical network analytics |
+| **v1.3.0** | Latency monitoring, high-latency detection, recovery alerts, and monitoring improvements |
+| **v1.4.0** | AI Network Analyst, OpenAI integration, privacy-conscious network summaries, on-demand AI reports |
 
-See [GitHub Releases](https://github.com/GabrielBGN/HomeOps-AI/releases) for published versions.
+See [GitHub Releases](https://github.com/GabrielBGN/HomeOps-AI/releases) for release details.
 
-## Testing and CI
+## Testing and Continuous Integration
 
-The project uses `pytest` for unit and workflow tests. Coverage includes device changes, scanning behavior, offline thresholds, alerts, database operations, availability calculations, and dashboard rendering.
+HomeOps-AI uses `pytest` to validate network monitoring behavior and application functionality.
 
-At the v1.2.0 release, **82 automated tests passed locally and in GitHub Actions**. CI validates code behavior in a clean environment; it does not replace a live Raspberry Pi network test.
+Test coverage includes:
+
+- Device discovery and change detection.
+- Offline thresholds and reconnection handling.
+- Database operations.
+- Alert generation.
+- Historical availability calculations.
+- Latency monitoring.
+- Dashboard behavior.
+- AI analysis functionality and safeguards.
+
+**v1.4.0 verification:** 167 automated tests passed, with GitHub Actions CI checks passing.
+
+The application has also been tested on a Raspberry Pi using live network monitoring data and a successfully generated AI network health assessment.
+
+## Security and Privacy
+
+HomeOps-AI is designed for use on networks you own or have permission to monitor.
+
+Security considerations include:
+
+- Localhost-only dashboard access.
+- Encrypted remote access using SSH tunneling.
+- HTTP Host and Origin validation for protected AI requests.
+- CSRF protection and request cooldowns.
+- Local storage of OpenAI credentials.
+- Sanitization of sensitive network identifiers before AI requests.
+- No automatic AI requests during scheduled scans.
+- Exclusion of credentials and local monitoring databases from version control.
+
+**Important:** The dashboard is intended for trusted local access. Do not expose it directly to the public internet without additional authentication and security controls.
 
 ## Roadmap
 
-- **Next deployment milestone:** Install and verify v1.2.0 on the Raspberry Pi, including live discovery, database writes, timer execution, and dashboard access.
-- **AI-assisted network intelligence (planned):** Analyze historical observations for unusual connectivity or latency patterns, summarize incidents, and assist with troubleshooting.
-- **Future infrastructure integrations (exploratory):** Additional observability, automation, and security tooling.
+Potential future improvements include:
 
-**AI status:** The monitoring data pipeline and analytics provide a foundation for AI features. AI/LLM-based anomaly detection and troubleshooting are **not yet confirmed as implemented** in v1.2.0.
+- Better differentiation between inactive historical devices and recently disconnected devices.
+- Improved device classification and identification.
+- More advanced latency trend analysis.
+- Additional network health visualizations.
+- Improved AI troubleshooting context.
+- Optional notifications for important network events.
+- Expanded network observability integrations.
 
-## Security and privacy
+## Project Purpose
 
-- Monitor only networks you are authorized to scan.
-- Keep credentials, API keys, private configuration, and local SQLite databases out of version control.
-- Avoid exposing the dashboard directly to the public internet without authentication and appropriate network controls.
-- Review configuration examples before running scans on your own subnet.
+HomeOps-AI is a hands-on homelab project focused on building practical experience in:
 
-## Project purpose
+- Network engineering and troubleshooting.
+- Linux system administration.
+- Python backend development.
+- Network security monitoring.
+- Database management.
+- Infrastructure automation.
+- API integration and AI-assisted operations.
+- Testing, continuous integration, and production-style deployment.
 
-HomeOps-AI is a practical homelab project for developing skills in **network engineering, Linux administration, Python backend development, security monitoring, automation, databases, and observability**—with a path toward AI-assisted operations.
+The project demonstrates the development and deployment of a persistent network monitoring application on dedicated Raspberry Pi hardware, with AI-assisted analysis built on real network telemetry.
+
+---
+
+**HomeOps-AI v1.4.0 — AI Network Analyst**
