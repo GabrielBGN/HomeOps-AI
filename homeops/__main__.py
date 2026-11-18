@@ -7,6 +7,8 @@ from .database import (
     get_device_by_mac,
     record_scan_history,
     record_scan_observation,
+    get_device_latency_history,
+    get_latest_latency_alert,
     increment_missed_scan,
     mark_device_offline,
     create_alert,
@@ -14,6 +16,7 @@ from .database import (
 
 from .scanner import scan_network
 from .change_detector import detect_changes
+from .anomaly_detection import detect_latency_anomaly
 from .trusted_devices import (
     check_unrecognized_devices,
     load_trusted_macs,
@@ -188,6 +191,38 @@ def main():
 
         changes = detect_changes(previous_device, device)
         detected_changes.extend(changes)
+
+        # Evaluate latency against prior observations BEFORE saving this scan.
+        # A new device has no baseline yet, so skip the history lookup.
+        if previous_device is not None:
+            historical_latencies = get_device_latency_history(mac_address)
+            anomaly = detect_latency_anomaly(
+                device.get("latency_ms"), historical_latencies
+            )
+            # Do not change incident state without a valid baseline/current sample.
+            if anomaly["threshold_ms"] is not None and anomaly["reason"] != "No valid current latency measurement.":
+                latest_alert = get_latest_latency_alert(mac_address)
+                active_incident = (
+                    latest_alert is not None
+                    and latest_alert["alert_type"] == "HIGH_LATENCY"
+                )
+                hostname = device.get("hostname") or "Unknown"
+
+                if anomaly["is_anomaly"]:
+                    print(f"[ANOMALY] {hostname} ({mac_address}): {anomaly['reason']}")
+                    if not active_incident:
+                        create_alert(
+                            "HIGH_LATENCY", mac_address,
+                            f"{hostname}: {anomaly['reason']}",
+                        )
+                        print(f"[ALERT] High latency detected for {hostname}.")
+                elif active_incident:
+                    create_alert(
+                        "LATENCY_RECOVERED", mac_address,
+                        f"{hostname} latency returned to normal "
+                        f"({device['latency_ms']:.1f} ms).",
+                    )
+                    print(f"[ALERT] {hostname} latency recovered.")
 
         save_device(device)
         record_scan_history(device)
