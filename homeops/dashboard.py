@@ -144,12 +144,16 @@ def build_dashboard():
         "NEW_DEVICE": "Security Alert",
         "DEVICE_OFFLINE": "Device Offline",
         "DEVICE_ONLINE": "Device Reconnected",
+        "HIGH_LATENCY": "High Latency Detected",
+        "LATENCY_RECOVERED": "Latency Recovered",
     }
 
     alert_classes = {
         "NEW_DEVICE": "alert-security",
         "DEVICE_OFFLINE": "alert-offline",
         "DEVICE_ONLINE": "alert-recovery",
+        "HIGH_LATENCY": "alert-latency",
+        "LATENCY_RECOVERED": "alert-recovery",
     }
 
     for alert in alerts:

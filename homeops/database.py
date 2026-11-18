@@ -368,6 +368,38 @@ def record_scan_observation(mac_address, observed_status, confirmed_status, late
         connection.close()
 
 
+def get_device_latency_history(mac_address, limit=50, exclude_observation_id=None):
+    """Return recent valid latency samples for a device, oldest first.
+
+    The optional observation ID lets callers exclude the current measurement
+    when constructing a historical anomaly-detection baseline.
+    """
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+        raise ValueError("limit must be a positive integer")
+
+    connection = get_connection()
+    try:
+        rows = connection.execute(
+            """
+            SELECT observations.latency_ms
+            FROM scan_observations AS observations
+            JOIN devices ON devices.id = observations.device_id
+            WHERE devices.mac_address = ?
+              AND observations.observed_status = 'SEEN'
+              AND observations.latency_ms IS NOT NULL
+              AND observations.latency_ms >= 0
+              AND (? IS NULL OR observations.id != ?)
+            ORDER BY observations.timestamp DESC, observations.id DESC
+            LIMIT ?
+            """,
+            (mac_address, exclude_observation_id, exclude_observation_id, limit),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    return [row[0] for row in reversed(rows)]
+
+
 def get_device_availability():
     """Return scan-based observed availability for every known device.
 
@@ -520,6 +552,42 @@ def create_alert(alert_type, mac_address, message):
     connection.close()
 
     return alert_id
+
+
+def get_latest_latency_alert(mac_address):
+    """Return the latest latency incident alert for a device, or None.
+
+    Only HIGH_LATENCY and LATENCY_RECOVERED affect incident state.
+    Read status does not affect the result. Order by ID to resolve alerts
+    created within the same second.
+    """
+    connection = get_connection()
+    try:
+        row = connection.execute(
+            """
+            SELECT id, alert_type, mac_address, message, created_at, is_read
+            FROM alerts
+            WHERE mac_address = ?
+              AND alert_type IN ('HIGH_LATENCY', 'LATENCY_RECOVERED')
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (mac_address,),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    if row is None:
+        return None
+
+    return {
+        "id": row[0],
+        "alert_type": row[1],
+        "mac_address": row[2],
+        "message": row[3],
+        "created_at": row[4],
+        "is_read": bool(row[5]),
+    }
 
 
 def get_recent_alerts(limit=50):
